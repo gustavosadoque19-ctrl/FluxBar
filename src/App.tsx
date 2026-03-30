@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import * as React from 'react';
 import { useState, useEffect, createContext, useContext, ReactNode, useRef, ChangeEvent } from 'react';
 import { 
   LayoutDashboard, 
@@ -58,6 +59,7 @@ import {
   orderBy, 
   limit, 
   addDoc, 
+  setDoc,
   updateDoc, 
   deleteDoc, 
   doc, 
@@ -84,6 +86,56 @@ import { Table, Order, Product, Waiter, TableStatus, RestaurantSettings, OrderSt
 import { WhatsAppService } from './services/whatsappService';
 
 // --- Error Handling & Utilities ---
+
+class ErrorBoundary extends React.Component<any, any> {
+  state: any;
+  props: any;
+
+  constructor(props: any) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: any) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: any, errorInfo: any) {
+    console.error("ErrorBoundary caught an error", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      let errorMessage = "Ocorreu um erro inesperado.";
+      try {
+        const parsedError = JSON.parse(this.state.error.message);
+        if (parsedError.error) {
+          errorMessage = `Erro no Firestore (${parsedError.operationType}): ${parsedError.error}`;
+        }
+      } catch (e) {
+        errorMessage = this.state.error?.message || errorMessage;
+      }
+
+      return (
+        <div className="h-screen flex items-center justify-center bg-[#E4E3E0] p-6">
+          <div className="max-w-md w-full bg-white border-2 border-[#141414] p-12 text-center shadow-[20px_20px_0px_0px_rgba(20,20,20,1)]">
+            <AlertCircle size={48} className="mx-auto mb-6 text-red-500" />
+            <h2 className="font-serif italic text-3xl mb-4">Ops! Algo deu errado.</h2>
+            <p className="text-sm opacity-60 mb-8">{errorMessage}</p>
+            <button 
+              onClick={() => window.location.reload()}
+              className="w-full bg-[#141414] text-[#E4E3E0] py-4 font-bold uppercase tracking-widest hover:opacity-90 transition-opacity"
+            >
+              Recarregar Aplicativo
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
 
 enum OperationType {
   CREATE = 'create',
@@ -144,6 +196,7 @@ function cn(...inputs: ClassValue[]) {
 
 interface AuthContextType {
   user: User | null;
+  isAdmin: boolean;
   loading: boolean;
   login: () => Promise<void>;
   logout: () => Promise<void>;
@@ -153,11 +206,40 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (u) => {
+    const unsubscribe = onAuthStateChanged(auth, async (u) => {
       setUser(u);
+      if (u) {
+        // Check if user is admin based on email
+        const isAdminByEmail = u.email === "gustavosadoque19@gmail.com";
+        
+        try {
+          const userDocRef = doc(db, 'users', u.uid);
+          const userDoc = await getDoc(userDocRef);
+          const role = userDoc.exists() ? userDoc.data().role : null;
+          setIsAdmin(isAdminByEmail || role === 'admin');
+          
+          // If user doesn't exist in users collection, create it with UID as ID
+          if (!userDoc.exists()) {
+            await setDoc(userDocRef, {
+              uid: u.uid,
+              email: u.email,
+              displayName: u.displayName,
+              role: isAdminByEmail ? 'admin' : 'user',
+              createdAt: serverTimestamp()
+            });
+          }
+        } catch (error) {
+          console.error("Error checking admin status:", error);
+          // Fallback to email check if Firestore fails
+          setIsAdmin(isAdminByEmail);
+        }
+      } else {
+        setIsAdmin(false);
+      }
       setLoading(false);
     });
     return unsubscribe;
@@ -180,7 +262,7 @@ function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout }}>
+    <AuthContext.Provider value={{ user, isAdmin, loading, login, logout }}>
       {children}
     </AuthContext.Provider>
   );
@@ -198,14 +280,16 @@ type Tab = 'dashboard' | 'tables' | 'delivery' | 'menu' | 'waiters' | 'settings'
 
 export default function App() {
   return (
-    <AuthProvider>
-      <AppContent />
-    </AuthProvider>
+    <ErrorBoundary>
+      <AuthProvider>
+        <AppContent />
+      </AuthProvider>
+    </ErrorBoundary>
   );
 }
 
 function AppContent() {
-  const { user, loading, login, logout } = useAuth();
+  const { user, isAdmin, loading, login, logout } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
   
   // Real-time states
@@ -275,27 +359,37 @@ function AppContent() {
         };
         setSettings({ id: 'general', ...defaultSettings } as RestaurantSettings);
       }
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, 'settings/general');
     });
 
     // Listen to Tables
     const unsubTables = onSnapshot(collection(db, 'tables'), (snap) => {
       setTables(snap.docs.map(d => ({ id: d.id, ...d.data() } as Table)));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'tables');
     });
 
     // Listen to Orders (Recent)
     const qOrders = query(collection(db, 'orders'), orderBy('createdAt', 'desc'), limit(20));
     const unsubOrders = onSnapshot(qOrders, (snap) => {
       setOrders(snap.docs.map(d => ({ id: d.id, ...d.data() } as Order)));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'orders');
     });
 
     // Listen to Products
     const unsubProducts = onSnapshot(collection(db, 'products'), (snap) => {
       setProducts(snap.docs.map(d => ({ id: d.id, ...d.data() } as Product)));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'products');
     });
 
     // Listen to Waiters
     const unsubWaiters = onSnapshot(collection(db, 'waiters'), (snap) => {
       setWaiters(snap.docs.map(d => ({ id: d.id, ...d.data() } as Waiter)));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'waiters');
     });
 
     // Handle Stripe Redirects
@@ -382,18 +476,18 @@ function AppContent() {
   }
 
   const navItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, adminOnly: true },
     { id: 'tables', label: 'Mesas (Garçom)', icon: Smartphone },
     { id: 'kitchen', label: 'Cozinha', icon: ChefHat },
     { id: 'delivery', label: 'Delivery', icon: Truck },
-    { id: 'menu', label: 'Cardápio', icon: ClipboardList },
-    { id: 'waiters', label: 'Equipe', icon: Users },
-    { id: 'reports', label: 'Relatórios', icon: BarChart3 },
+    { id: 'menu', label: 'Cardápio', icon: ClipboardList, adminOnly: true },
+    { id: 'waiters', label: 'Equipe', icon: Users, adminOnly: true },
+    { id: 'reports', label: 'Relatórios', icon: BarChart3, adminOnly: true },
     { id: 'cashier', label: 'Caixa', icon: Banknote },
     { id: 'whatsapp', label: 'WhatsApp', icon: MessageSquare },
-    { id: 'fiscal', label: 'Fiscal', icon: FileText },
-    { id: 'settings', label: 'Ajustes', icon: Settings },
-  ];
+    { id: 'fiscal', label: 'Fiscal', icon: FileText, adminOnly: true },
+    { id: 'settings', label: 'Ajustes', icon: Settings, adminOnly: true },
+  ].filter(item => !item.adminOnly || isAdmin);
 
   return (
     <div className="flex flex-col md:flex-row h-screen bg-[#E4E3E0] text-[#141414] font-sans selection:bg-[#141414] selection:text-[#E4E3E0] overflow-hidden">

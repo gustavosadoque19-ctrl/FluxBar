@@ -1,9 +1,9 @@
 {
   "projectId": "fluxbar-1ba4a",
-  "appId": "1:472274361831:web:0627df11e371c3950a7142",
+  "appId": "1:472274361831:web:412041cb7e4687930a7142",
   "apiKey": "AIzaSyAseKze_3runkl2CRPRjNN2uxFBTuBkjDA",
   "authDomain": "fluxbar-1ba4a.firebaseapp.com",
-  "firestoreDatabaseId": "(default)",
+  "firestoreDatabaseId": "ai-studio-d4b0a352-ff6f-4b2b-aa3a-335f3ecce1ee",
   "storageBucket": "fluxbar-1ba4a.firebasestorage.app",
   "messagingSenderId": "472274361831",
   "measurementId": ""

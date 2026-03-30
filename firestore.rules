@@ -6,66 +6,23 @@ service cloud.firestore {
     // Assumed Data Model
     // ===============================================================
     //
-    // Collection: waiters
-    // Fields:
-    //   - name: string (required)
-    //   - shift: string (required, enum: ["Manhã", "Tarde", "Noite"])
-    //   - commissionRate: number (optional)
+    // Collection: orders
+    // Fields: items, status, paymentStatus, subtotal, total, type, createdAt, updatedAt, ...
     //
     // Collection: products
-    // Fields:
-    //   - name: string (required)
-    //   - price: number (required, positive)
-    //   - category: string (required, enum: ["Bebidas", "Pratos", "Sobremesas", "Entradas"])
-    //   - available: bool (required)
+    // Fields: name, price, category, available, cost, barcode, imageUrl, ...
     //
     // Collection: tables
-    // Fields:
-    //   - number: int (required)
-    //   - status: string (required, enum: ["Livre", "Ocupada", "Aguardando Limpeza", "Fechando Conta"])
-    //   - currentOrderId: string (optional)
+    // Fields: number, status, capacity, currentOrderId
     //
-    // Collection: orders
-    // Fields:
-    //   - type: string (required, enum: ["TABLE", "DELIVERY"])
-    //   - status: string (required, enum: ["OPEN", "PREPARING", "DELIVERING", "FINISHED", "CANCELLED"])
-    //   - tableId: string (optional)
-    //   - waiterId: string (optional)
-    //   - customerId: string (optional)
-    //   - items: list (required, list of objects)
-    //   - subtotal: number (required)
-    //   - total: number (required)
-    //   - createdAt: timestamp (required)
-    //
-    // Collection: customers
-    // Fields:
-    //   - name: string (required)
-    //   - phone: string (required)
-    //   - address: map (optional)
+    // Collection: waiters
+    // Fields: name, phone, active
     //
     // Collection: settings
-    // Fields:
-    //   - restaurantName: string (required)
-    //   - address: string (optional)
-    //   - serviceFee: number (required)
+    // Fields: restaurantName, address, phone, serviceFee, ...
     //
-    // Collection: fiscal_config
-    // Fields:
-    //   - cnpj: string (required)
-    //   - razaoSocial: string (required)
-    //   - uf: string (required)
-    //   - ambiente: string (required, enum: ["1", "2"])
-    //
-    // Collection: cashier_sessions
-    // Fields:
-    //   - openedAt: timestamp (required)
-    //   - closedAt: timestamp (optional)
-    //   - openedBy: string (required)
-    //   - closedBy: string (optional)
-    //   - openingBalance: number (required)
-    //   - closingBalanceSystem: number (optional)
-    //   - closingBalancePhysical: number (optional)
-    //   - status: string (required, enum: ["OPEN", "CLOSED"])
+    // Collection: cashierSessions
+    // Fields: openedAt, closedAt, openedBy, closedBy, openingBalance, closingBalancePhysical, closingBalanceSystem, status
     //
     // ===============================================================
 
@@ -79,8 +36,9 @@ service cloud.firestore {
 
     function isAdmin() {
       return isAuthenticated() &&
-        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
-          (request.auth.token.email == "gustavosadoque19@gmail.com" && request.auth.token.email_verified == true));
+        ((exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin') ||
+          request.auth.token.email == "gustavosadoque19@gmail.com");
     }
 
     function hasRequiredFields(fields) {
@@ -91,82 +49,66 @@ service cloud.firestore {
       return request.resource.data.keys().hasOnly(fields);
     }
 
-    // ===============================================================
-    // Validation Functions
-    // ===============================================================
-
-    function isValidWaiter(data) {
-      return data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
-             data.shift in ["Manhã", "Tarde", "Noite"];
-    }
+    // --- Domain Validators ---
 
     function isValidProduct(data) {
-      return data.name is string && data.name.size() > 0 && data.name.size() < 200 &&
+      return data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
              data.price is number && data.price >= 0 &&
-             data.category in ["Bebidas", "Pratos", "Sobremesas", "Entradas"] &&
+             data.category is string &&
              data.available is bool;
     }
 
-    function isValidTable(data) {
-      return data.number is int &&
-             data.status in ["Livre", "Ocupada", "Aguardando Limpeza", "Fechando Conta"];
-    }
-
     function isValidOrder(data) {
-      return data.type in ["TABLE", "DELIVERY"] &&
-             data.status in ["OPEN", "PREPARING", "DELIVERING", "FINISHED", "CANCELLED"] &&
-             data.items is list &&
+      return data.items is list &&
+             data.status in ['PENDING', 'PREPARING', 'READY', 'DELIVERED', 'CANCELLED', 'FINISHED'] &&
+             data.paymentStatus in ['PENDING', 'PAID', 'FAILED'] &&
              data.subtotal is number &&
-             data.total is number;
+             data.total is number &&
+             data.type in ['TABLE', 'DELIVERY'];
     }
 
-    function isValidCustomer(data) {
-      return data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
-             data.phone is string && data.phone.size() > 0;
+    function isValidTable(data) {
+      return data.number is string &&
+             data.status in ['AVAILABLE', 'OCCUPIED', 'RESERVED'] &&
+             data.capacity is number;
     }
 
-    function isValidFiscalConfig(data) {
-      return data.cnpj is string && data.cnpj.size() > 0 &&
-             data.razaoSocial is string && data.razaoSocial.size() > 0 &&
-             data.uf is string && data.uf.size() == 2 &&
-             data.ambiente in ["1", "2"];
+    function isValidWaiter(data) {
+      return data.name is string && data.name.size() > 0 &&
+             data.active is bool;
+    }
+
+    function isValidSettings(data) {
+      return data.restaurantName is string && data.restaurantName.size() > 0 &&
+             data.serviceFee is number && data.serviceFee >= 0;
     }
 
     function isValidCashierSession(data) {
       return data.openedAt is timestamp &&
-             data.openedBy is string && data.openedBy.size() > 0 &&
-             data.openingBalance is number && data.openingBalance >= 0 &&
-             data.status in ["OPEN", "CLOSED"] &&
-             (!('closedAt' in data) || data.closedAt is timestamp) &&
-             (!('closedBy' in data) || (data.closedBy is string && data.closedBy.size() > 0)) &&
-             (!('closingBalanceSystem' in data) || data.closingBalanceSystem is number) &&
-             (!('closingBalancePhysical' in data) || (data.closingBalancePhysical is number && data.closingBalancePhysical >= 0));
+             data.openedBy is string &&
+             data.openingBalance is number &&
+             data.status in ['OPEN', 'CLOSED'];
     }
 
     // ===============================================================
     // Rules
     // ===============================================================
 
+    // Users Collection (for roles)
     match /users/{userId} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin();
+      allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      allow create: if isAuthenticated() && (request.auth.uid == userId && request.resource.data.role == 'user') || isAdmin();
+      allow update: if isAdmin();
     }
 
-    match /waiters/{waiterId} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin();
-    }
-
+    // Products
     match /products/{productId} {
       allow read: if isAuthenticated();
-      allow write: if isAdmin();
+      allow create, update: if isAdmin() && isValidProduct(request.resource.data);
+      allow delete: if isAdmin();
     }
 
-    match /tables/{tableId} {
-      allow read: if isAuthenticated();
-      allow write: if isAuthenticated() && isValidTable(request.resource.data);
-    }
-
+    // Orders
     match /orders/{orderId} {
       allow read: if isAuthenticated();
       allow create: if isAuthenticated() && isValidOrder(request.resource.data);
@@ -174,43 +116,32 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
-    match /customers/{customerId} {
+    // Tables
+    match /tables/{tableId} {
       allow read: if isAuthenticated();
-      allow write: if isAuthenticated() && isValidCustomer(request.resource.data);
-    }
-
-    match /settings/{settingId} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin();
-    }
-
-    match /fiscal_config/{configId} {
-      allow read: if isAdmin();
-      allow write: if isAdmin() && isValidFiscalConfig(request.resource.data);
-    }
-
-    match /cashier_sessions/{sessionId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && isValidCashierSession(request.resource.data) && request.resource.data.status == "OPEN";
-      allow update: if isAuthenticated() && 
-                      isValidCashierSession(request.resource.data) &&
-                      resource.data.status == "OPEN" &&
-                      request.resource.data.openedAt == resource.data.openedAt &&
-                      request.resource.data.openedBy == resource.data.openedBy &&
-                      request.resource.data.openingBalance == resource.data.openingBalance &&
-                      (
-                        // Closing the session
-                        (request.resource.data.status == "CLOSED" && 
-                         hasRequiredFields(['closedAt', 'closedBy', 'closingBalancePhysical', 'closingBalanceSystem'])) ||
-                        // Updating an open session (e.g. adding notes)
-                        (request.resource.data.status == "OPEN")
-                      );
+      allow create, update: if isAuthenticated() && isValidTable(request.resource.data);
       allow delete: if isAdmin();
     }
 
-    // Default deny
-    match /{path=**} {
-      allow read, write: if false;
+    // Waiters
+    match /waiters/{waiterId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAdmin() && isValidWaiter(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    // Settings
+    match /settings/{settingsId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAdmin() && isValidSettings(request.resource.data);
+    }
+
+    // Cashier Sessions
+    match /cashierSessions/{sessionId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidCashierSession(request.resource.data);
+      allow update: if isAuthenticated() && isValidCashierSession(request.resource.data);
+      allow delete: if isAdmin();
     }
   }
 }

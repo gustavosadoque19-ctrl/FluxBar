@@ -1,5 +1,5 @@
 {
   "name": "FLUXBar",
   "description": "Sistema de gestão para bares e restaurantes com Dashboard de Controle, App de Garçom (Mesas/Comandas), Monitor de Cozinha em tempo real e Delivery.",
-  "requestFramePermissions": []
+  "requestFramePermissions": ["camera"]
 }
