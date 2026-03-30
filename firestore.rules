@@ -1,0 +1,216 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: waiters
+    // Fields:
+    //   - name: string (required)
+    //   - shift: string (required, enum: ["Manhã", "Tarde", "Noite"])
+    //   - commissionRate: number (optional)
+    //
+    // Collection: products
+    // Fields:
+    //   - name: string (required)
+    //   - price: number (required, positive)
+    //   - category: string (required, enum: ["Bebidas", "Pratos", "Sobremesas", "Entradas"])
+    //   - available: bool (required)
+    //
+    // Collection: tables
+    // Fields:
+    //   - number: int (required)
+    //   - status: string (required, enum: ["Livre", "Ocupada", "Aguardando Limpeza", "Fechando Conta"])
+    //   - currentOrderId: string (optional)
+    //
+    // Collection: orders
+    // Fields:
+    //   - type: string (required, enum: ["TABLE", "DELIVERY"])
+    //   - status: string (required, enum: ["OPEN", "PREPARING", "DELIVERING", "FINISHED", "CANCELLED"])
+    //   - tableId: string (optional)
+    //   - waiterId: string (optional)
+    //   - customerId: string (optional)
+    //   - items: list (required, list of objects)
+    //   - subtotal: number (required)
+    //   - total: number (required)
+    //   - createdAt: timestamp (required)
+    //
+    // Collection: customers
+    // Fields:
+    //   - name: string (required)
+    //   - phone: string (required)
+    //   - address: map (optional)
+    //
+    // Collection: settings
+    // Fields:
+    //   - restaurantName: string (required)
+    //   - address: string (optional)
+    //   - serviceFee: number (required)
+    //
+    // Collection: fiscal_config
+    // Fields:
+    //   - cnpj: string (required)
+    //   - razaoSocial: string (required)
+    //   - uf: string (required)
+    //   - ambiente: string (required, enum: ["1", "2"])
+    //
+    // Collection: cashier_sessions
+    // Fields:
+    //   - openedAt: timestamp (required)
+    //   - closedAt: timestamp (optional)
+    //   - openedBy: string (required)
+    //   - closedBy: string (optional)
+    //   - openingBalance: number (required)
+    //   - closingBalanceSystem: number (optional)
+    //   - closingBalancePhysical: number (optional)
+    //   - status: string (required, enum: ["OPEN", "CLOSED"])
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          (request.auth.token.email == "gustavosadoque19@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    // ===============================================================
+    // Validation Functions
+    // ===============================================================
+
+    function isValidWaiter(data) {
+      return data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.shift in ["Manhã", "Tarde", "Noite"];
+    }
+
+    function isValidProduct(data) {
+      return data.name is string && data.name.size() > 0 && data.name.size() < 200 &&
+             data.price is number && data.price >= 0 &&
+             data.category in ["Bebidas", "Pratos", "Sobremesas", "Entradas"] &&
+             data.available is bool;
+    }
+
+    function isValidTable(data) {
+      return data.number is int &&
+             data.status in ["Livre", "Ocupada", "Aguardando Limpeza", "Fechando Conta"];
+    }
+
+    function isValidOrder(data) {
+      return data.type in ["TABLE", "DELIVERY"] &&
+             data.status in ["OPEN", "PREPARING", "DELIVERING", "FINISHED", "CANCELLED"] &&
+             data.items is list &&
+             data.subtotal is number &&
+             data.total is number;
+    }
+
+    function isValidCustomer(data) {
+      return data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.phone is string && data.phone.size() > 0;
+    }
+
+    function isValidFiscalConfig(data) {
+      return data.cnpj is string && data.cnpj.size() > 0 &&
+             data.razaoSocial is string && data.razaoSocial.size() > 0 &&
+             data.uf is string && data.uf.size() == 2 &&
+             data.ambiente in ["1", "2"];
+    }
+
+    function isValidCashierSession(data) {
+      return data.openedAt is timestamp &&
+             data.openedBy is string && data.openedBy.size() > 0 &&
+             data.openingBalance is number && data.openingBalance >= 0 &&
+             data.status in ["OPEN", "CLOSED"] &&
+             (!('closedAt' in data) || data.closedAt is timestamp) &&
+             (!('closedBy' in data) || (data.closedBy is string && data.closedBy.size() > 0)) &&
+             (!('closingBalanceSystem' in data) || data.closingBalanceSystem is number) &&
+             (!('closingBalancePhysical' in data) || (data.closingBalancePhysical is number && data.closingBalancePhysical >= 0));
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    match /waiters/{waiterId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    match /products/{productId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    match /tables/{tableId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && isValidTable(request.resource.data);
+    }
+
+    match /orders/{orderId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidOrder(request.resource.data);
+      allow update: if isAuthenticated() && isValidOrder(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /customers/{customerId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && isValidCustomer(request.resource.data);
+    }
+
+    match /settings/{settingId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    match /fiscal_config/{configId} {
+      allow read: if isAdmin();
+      allow write: if isAdmin() && isValidFiscalConfig(request.resource.data);
+    }
+
+    match /cashier_sessions/{sessionId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidCashierSession(request.resource.data) && request.resource.data.status == "OPEN";
+      allow update: if isAuthenticated() && 
+                      isValidCashierSession(request.resource.data) &&
+                      resource.data.status == "OPEN" &&
+                      request.resource.data.openedAt == resource.data.openedAt &&
+                      request.resource.data.openedBy == resource.data.openedBy &&
+                      request.resource.data.openingBalance == resource.data.openingBalance &&
+                      (
+                        // Closing the session
+                        (request.resource.data.status == "CLOSED" && 
+                         hasRequiredFields(['closedAt', 'closedBy', 'closingBalancePhysical', 'closingBalanceSystem'])) ||
+                        // Updating an open session (e.g. adding notes)
+                        (request.resource.data.status == "OPEN")
+                      );
+      allow delete: if isAdmin();
+    }
+
+    // Default deny
+    match /{path=**} {
+      allow read, write: if false;
+    }
+  }
+}

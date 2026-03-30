@@ -1,0 +1,142 @@
+{
+  "entities": {
+    "Waiter": {
+      "title": "Waiter",
+      "description": "Funcionário responsável pelo atendimento",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "shift": { "type": "string", "enum": ["Manhã", "Tarde", "Noite"] },
+        "commissionRate": { "type": "number", "description": "Percentual de comissão (ex: 0.10 para 10%)" }
+      },
+      "required": ["name", "shift"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Item do cardápio",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "price": { "type": "number" },
+        "category": { "type": "string", "enum": ["Bebidas", "Pratos", "Sobremesas", "Entradas"] },
+        "available": { "type": "boolean" }
+      },
+      "required": ["name", "price", "category"]
+    },
+    "Table": {
+      "title": "Table",
+      "description": "Mesa do estabelecimento",
+      "type": "object",
+      "properties": {
+        "number": { "type": "integer" },
+        "status": { "type": "string", "enum": ["Livre", "Ocupada", "Aguardando Limpeza", "Fechando Conta"] },
+        "currentOrderId": { "type": "string", "description": "ID do pedido ativo na mesa" }
+      },
+      "required": ["number", "status"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "Pedido de mesa ou delivery",
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "enum": ["TABLE", "DELIVERY"] },
+        "status": { "type": "string", "enum": ["OPEN", "PREPARING", "DELIVERING", "FINISHED", "CANCELLED"] },
+        "tableId": { "type": "string" },
+        "waiterId": { "type": "string" },
+        "customerId": { "type": "string" },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "productId": { "type": "string" },
+              "name": { "type": "string" },
+              "price": { "type": "number" },
+              "quantity": { "type": "integer" }
+            }
+          }
+        },
+        "subtotal": { "type": "number" },
+        "serviceFee": { "type": "number" },
+        "deliveryFee": { "type": "number" },
+        "total": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["type", "status", "items", "total"]
+    },
+    "Customer": {
+      "title": "Customer",
+      "description": "Cliente para delivery",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "phone": { "type": "string" },
+        "address": {
+          "type": "object",
+          "properties": {
+            "street": { "type": "string" },
+            "number": { "type": "string" },
+            "neighborhood": { "type": "string" },
+            "city": { "type": "string" }
+          }
+        }
+      },
+      "required": ["name", "phone"]
+    },
+    "FiscalConfig": {
+      "title": "FiscalConfig",
+      "description": "Configurações fiscais da empresa",
+      "type": "object",
+      "properties": {
+        "cnpj": { "type": "string" },
+        "razaoSocial": { "type": "string" },
+        "inscricaoEstadual": { "type": "string" },
+        "uf": { "type": "string" },
+        "ambiente": { "type": "string", "enum": ["1", "2"] },
+        "csc": { "type": "string" },
+        "cscId": { "type": "string" },
+        "certificadoBase64": { "type": "string" },
+        "certificadoSenha": { "type": "string" }
+      },
+      "required": ["cnpj", "razaoSocial", "uf", "ambiente"]
+    },
+    "RestaurantSettings": {
+      "title": "RestaurantSettings",
+      "description": "Configurações gerais do restaurante",
+      "type": "object",
+      "properties": {
+        "restaurantName": { "type": "string" },
+        "address": { "type": "string" },
+        "serviceFee": { "type": "number" },
+        "whatsappNumber": { "type": "string" }
+      },
+      "required": ["restaurantName", "serviceFee"]
+    },
+    "CashierSession": {
+      "title": "CashierSession",
+      "description": "Sessão de caixa aberta/fechada",
+      "type": "object",
+      "properties": {
+        "openedAt": { "type": "string", "format": "date-time" },
+        "closedAt": { "type": "string", "format": "date-time" },
+        "openedBy": { "type": "string" },
+        "closedBy": { "type": "string" },
+        "openingBalance": { "type": "number" },
+        "closingBalanceSystem": { "type": "number" },
+        "closingBalancePhysical": { "type": "number" },
+        "status": { "type": "string", "enum": ["OPEN", "CLOSED"] }
+      },
+      "required": ["openedAt", "openedBy", "openingBalance", "status"]
+    }
+  },
+  "firestore": {
+    "/waiters": { "schema": "Waiter", "description": "Lista de garçons" },
+    "/products": { "schema": "Product", "description": "Cardápio" },
+    "/tables": { "schema": "Table", "description": "Gestão de mesas" },
+    "/orders": { "schema": "Order", "description": "Pedidos (Mesa e Delivery)" },
+    "/customers": { "schema": "Customer", "description": "Base de clientes" },
+    "/fiscal_config": { "schema": "FiscalConfig", "description": "Configuração fiscal única" },
+    "/settings": { "schema": "RestaurantSettings", "description": "Configurações gerais" },
+    "/cashier_sessions": { "schema": "CashierSession", "description": "Histórico de aberturas e fechamentos de caixa" }
+  }
+}
