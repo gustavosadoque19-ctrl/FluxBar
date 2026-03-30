@@ -1,13 +1,15 @@
 import { Tools, Make, json2xml, xml2json } from 'node-sped-nfe';
 
 export interface FiscalConfig {
-  CNPJ: string;
-  UF: string;
-  tpAmb: number; // 1 - Produção, 2 - Homologação
-  CSC?: string;
-  CSCid?: string;
-  pfx: string; // Base64 do certificado A1
-  senha: string;
+  cnpj: string;
+  razaoSocial: string;
+  inscricaoEstadual?: string;
+  uf: string;
+  ambiente: string; // '1' - Produção, '2' - Homologação
+  csc?: string;
+  cscId?: string;
+  certificadoBase64: string; // pfx
+  certificadoSenha: string; // senha
 }
 
 export class FiscalService {
@@ -24,19 +26,19 @@ export class FiscalService {
       {
         mod: '55', // Padrão NF-e
         xmllint: '',
-        UF: config.UF,
-        tpAmb: config.tpAmb,
-        CSC: config.CSC || '',
-        CSCid: config.CSCid || '',
+        UF: config.uf,
+        tpAmb: parseInt(config.ambiente),
+        CSC: config.csc || '',
+        CSCid: config.cscId || '',
         versao: '4.00',
         timeout: 15000,
         openssl: null,
         CPF: '',
-        CNPJ: config.CNPJ,
+        CNPJ: config.cnpj,
       },
       {
-        pfx: config.pfx,
-        senha: config.senha,
+        pfx: config.certificadoBase64,
+        senha: config.certificadoSenha,
       }
     );
   }

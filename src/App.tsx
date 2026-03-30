@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect, createContext, useContext, ReactNode } from 'react';
+import { useState, useEffect, createContext, useContext, ReactNode, useRef, ChangeEvent } from 'react';
 import { 
   LayoutDashboard, 
   Utensils, 
@@ -12,6 +12,8 @@ import {
   ClipboardList, 
   Settings,
   Plus,
+  Minus,
+  Trash2,
   Search,
   Bell,
   UserCircle,
@@ -32,7 +34,17 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   DollarSign,
-  Package
+  Package,
+  MapPin,
+  MessageSquare,
+  Barcode,
+  Camera,
+  Maximize2,
+  Minimize2,
+  X,
+  RefreshCw,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { QRCodeCanvas } from 'qrcode.react';
@@ -69,6 +81,7 @@ import {
 } from 'recharts';
 import FiscalView from './components/FiscalView';
 import { Table, Order, Product, Waiter, TableStatus, RestaurantSettings, OrderStatus, CashierSession } from './types';
+import { WhatsAppService } from './services/whatsappService';
 
 // --- Error Handling & Utilities ---
 
@@ -181,7 +194,7 @@ function useAuth() {
 
 // --- Main App Component ---
 
-type Tab = 'dashboard' | 'tables' | 'delivery' | 'menu' | 'waiters' | 'settings' | 'public_menu' | 'fiscal' | 'kitchen' | 'reports' | 'cashier';
+type Tab = 'dashboard' | 'tables' | 'delivery' | 'menu' | 'waiters' | 'settings' | 'public_menu' | 'fiscal' | 'kitchen' | 'reports' | 'cashier' | 'whatsapp';
 
 export default function App() {
   return (
@@ -209,8 +222,11 @@ function AppContent() {
   const [isOrderDetailsOpen, setIsOrderDetailsOpen] = useState(false);
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [selectedTableIdForOrder, setSelectedTableIdForOrder] = useState<string | undefined>(undefined);
+  const [selectedOrderTypeForModal, setSelectedOrderTypeForModal] = useState<'TABLE' | 'DELIVERY' | undefined>(undefined);
   const [isQRModalOpen, setIsQRModalOpen] = useState(false);
   const [qrTable, setQRTable] = useState<Table | null>(null);
+  const [isWhatsAppMiniBrowserOpen, setIsWhatsAppMiniBrowserOpen] = useState(false);
+  const [isWhatsAppMinimized, setIsWhatsAppMinimized] = useState(false);
   const [isProductModalOpen, setIsProductModalOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [isWaiterModalOpen, setIsWaiterModalOpen] = useState(false);
@@ -374,6 +390,7 @@ function AppContent() {
     { id: 'waiters', label: 'Equipe', icon: Users },
     { id: 'reports', label: 'Relatórios', icon: BarChart3 },
     { id: 'cashier', label: 'Caixa', icon: Banknote },
+    { id: 'whatsapp', label: 'WhatsApp', icon: MessageSquare },
     { id: 'fiscal', label: 'Fiscal', icon: FileText },
     { id: 'settings', label: 'Ajustes', icon: Settings },
   ];
@@ -391,7 +408,14 @@ function AppContent() {
           {navItems.map((item) => (
             <button
               key={item.id}
-              onClick={() => setActiveTab(item.id as Tab)}
+              onClick={() => {
+                if (item.id === 'whatsapp') {
+                  setIsWhatsAppMiniBrowserOpen(true);
+                  setIsWhatsAppMinimized(false);
+                } else {
+                  setActiveTab(item.id as Tab);
+                }
+              }}
               className={cn(
                 "w-full flex items-center gap-3 px-4 py-3 text-sm transition-all duration-200 group",
                 activeTab === item.id 
@@ -507,7 +531,17 @@ function AppContent() {
                   }}
                 />
               )}
-              {activeTab === 'delivery' && <DeliveryView orders={orders.filter(o => o.type === 'DELIVERY')} />}
+              {activeTab === 'delivery' && (
+                <DeliveryView 
+                  orders={orders.filter(o => o.type === 'DELIVERY')} 
+                  settings={settings}
+                  showToast={showToast} 
+                  onNewOrder={() => {
+                    setSelectedOrderTypeForModal('DELIVERY');
+                    setIsOrderModalOpen(true);
+                  }}
+                />
+              )}
               {activeTab === 'menu' && (
                 <MenuView 
                   products={products} 
@@ -551,7 +585,8 @@ function AppContent() {
                 />
               )}
               {activeTab === 'reports' && <ReportsView orders={orders} products={products} />}
-              {activeTab === 'cashier' && <CashierView orders={orders} user={user} />}
+              {activeTab === 'cashier' && <CashierView orders={orders} products={products} user={user} showToast={showToast} />}
+              {activeTab === 'whatsapp' && <WhatsAppView />}
               {activeTab === 'public_menu' && (
                 <PublicMenuView 
                   products={products} 
@@ -578,6 +613,31 @@ function AppContent() {
           onClose={() => setIsQRModalOpen(false)} 
           table={qrTable}
         />
+
+        {/* WhatsApp Mini Browser */}
+        <WhatsAppMiniBrowser 
+          isOpen={isWhatsAppMiniBrowserOpen} 
+          isMinimized={isWhatsAppMinimized}
+          onClose={() => setIsWhatsAppMiniBrowserOpen(false)}
+          onMinimize={() => setIsWhatsAppMinimized(!isWhatsAppMinimized)}
+        />
+
+        {/* Floating WhatsApp Toggle */}
+        {!isWhatsAppMiniBrowserOpen && (
+          <motion.button
+            initial={{ scale: 0, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.9 }}
+            onClick={() => {
+              setIsWhatsAppMiniBrowserOpen(true);
+              setIsWhatsAppMinimized(false);
+            }}
+            className="fixed bottom-20 right-4 md:bottom-6 md:right-6 z-[200] w-14 h-14 bg-green-500 text-white rounded-full flex items-center justify-center shadow-[8px_8px_0px_0px_rgba(20,20,20,1)] border-2 border-[#141414]"
+          >
+            <MessageSquare size={24} />
+          </motion.button>
+        )}
         <ProductModal 
           isOpen={isProductModalOpen} 
           onClose={() => setIsProductModalOpen(false)} 
@@ -594,12 +654,17 @@ function AppContent() {
         />
         <OrderModal
           isOpen={isOrderModalOpen}
-          onClose={() => setIsOrderModalOpen(false)}
+          onClose={() => {
+            setIsOrderModalOpen(false);
+            setSelectedTableIdForOrder(undefined);
+            setSelectedOrderTypeForModal(undefined);
+          }}
           tables={tables}
           products={products}
           waiters={waiters}
           settings={settings}
           initialTableId={selectedTableIdForOrder}
+          initialType={selectedOrderTypeForModal}
           showToast={showToast}
         />
         <OrderDetailsModal
@@ -1058,7 +1123,7 @@ function TablesView({ tables, orders, onAddTable, onEditTable, onNewOrder, onVie
   );
 }
 
-function DeliveryView({ orders }: { orders: Order[] }) {
+function DeliveryView({ orders, settings, showToast, onNewOrder }: { orders: Order[], settings: RestaurantSettings | null, showToast: any, onNewOrder: () => void }) {
   const handleSimulateIFood = async () => {
     try {
       await addDoc(collection(db, 'orders'), {
@@ -1074,10 +1139,24 @@ function DeliveryView({ orders }: { orders: Order[] }) {
         updatedAt: serverTimestamp(),
         platform: 'iFood'
       });
-      alert("Novo pedido iFood simulado com sucesso!");
+      showToast("Novo pedido iFood simulado com sucesso!", "success");
     } catch (error) {
       console.error("Erro ao simular pedido iFood:", error);
     }
+  };
+
+  const handleWhatsAppCustomer = (order: Order) => {
+    if (!order.customerPhone) {
+      showToast("Telefone do cliente não cadastrado!", "error");
+      return;
+    }
+    
+    let templateType: 'received' | 'preparing' | 'delivering' | 'finished' = 'received';
+    if (order.status === 'PREPARING') templateType = 'preparing';
+    if (order.status === 'DELIVERING') templateType = 'delivering';
+    if (order.status === 'FINISHED') templateType = 'finished';
+    
+    WhatsAppService.sendToCustomer(order, settings, templateType);
   };
 
   return (
@@ -1087,13 +1166,22 @@ function DeliveryView({ orders }: { orders: Order[] }) {
           <h2 className="font-serif italic text-3xl md:text-4xl">Delivery</h2>
           <p className="text-xs md:text-sm opacity-50 mt-1">Gestão centralizada de pedidos externos</p>
         </div>
-        <button 
-          onClick={handleSimulateIFood}
-          className="bg-red-600 text-white px-4 py-2 text-[10px] font-bold uppercase tracking-widest hover:bg-red-700 transition-colors flex items-center gap-2"
-        >
-          <Plus size={14} />
-          Simular iFood
-        </button>
+        <div className="flex gap-2">
+          <button 
+            onClick={onNewOrder}
+            className="bg-[#141414] text-[#E4E3E0] px-4 py-2 text-[10px] font-bold uppercase tracking-widest hover:opacity-90 transition-opacity flex items-center gap-2"
+          >
+            <Plus size={14} />
+            Novo Pedido
+          </button>
+          <button 
+            onClick={handleSimulateIFood}
+            className="bg-red-600 text-white px-4 py-2 text-[10px] font-bold uppercase tracking-widest hover:bg-red-700 transition-colors flex items-center gap-2"
+          >
+            <Plus size={14} />
+            Simular iFood
+          </button>
+        </div>
       </div>
       <div className="bg-white border border-[#141414] overflow-hidden">
         <div className="hidden sm:grid grid-cols-6 p-4 border-b border-[#141414] bg-[#141414] text-[#E4E3E0] text-[10px] uppercase font-bold tracking-widest">
@@ -1110,21 +1198,54 @@ function DeliveryView({ orders }: { orders: Order[] }) {
             <div key={order.id} className="flex flex-col sm:grid sm:grid-cols-6 p-4 border-b border-[#141414] items-start sm:items-center hover:bg-[#141414]/5 cursor-pointer transition-colors gap-3 sm:gap-0">
               <div className="font-mono text-[10px] md:text-xs opacity-50 sm:opacity-100">#{order.id.slice(0, 8).toUpperCase()}</div>
               <div className="sm:col-span-2">
-                <p className="text-sm font-bold">Cliente ID: {order.customerId?.slice(0, 8)}</p>
-                <p className="text-[10px] opacity-50">Pedido em: {new Date(order.createdAt).toLocaleTimeString()}</p>
+                <p className="text-sm font-bold">{order.customerName || `Cliente ID: ${order.customerId?.slice(0, 8)}`}</p>
+                {order.customerPhone && <p className="text-[10px] opacity-70">{order.customerPhone}</p>}
+                {order.deliveryAddress && <p className="text-[10px] opacity-40 truncate max-w-[200px]">{order.deliveryAddress}</p>}
+                <p className="text-[10px] opacity-30">Pedido em: {new Date(order.createdAt?.seconds * 1000).toLocaleTimeString()}</p>
               </div>
               <div className="flex items-center justify-between w-full sm:w-auto">
-                <span className={cn(
-                  "px-2 py-1 text-[9px] font-bold uppercase tracking-widest border",
-                  order.status === 'DELIVERING' ? "border-blue-500 text-blue-500" : "border-orange-500 text-orange-500"
-                )}>
-                  {order.status}
-                </span>
+                <div className="flex flex-col gap-1">
+                  <span className={cn(
+                    "px-2 py-1 text-[9px] font-bold uppercase tracking-widest border",
+                    order.status === 'DELIVERING' ? "border-blue-500 text-blue-500" : 
+                    order.status === 'FINISHED' ? "border-green-500 text-green-500" :
+                    "border-orange-500 text-orange-500"
+                  )}>
+                    {order.status}
+                  </span>
+                  <span className="text-[8px] font-bold uppercase opacity-40">{order.platform || 'Manual'}</span>
+                </div>
                 <div className="sm:hidden font-mono text-sm font-bold">R$ {order.total.toFixed(2)}</div>
               </div>
               <div className="hidden sm:block font-mono text-sm">R$ {order.total.toFixed(2)}</div>
-              <div className="w-full sm:text-right">
-                <button className="w-full sm:w-auto py-2 sm:py-0 text-[10px] font-bold uppercase tracking-widest underline sm:no-underline sm:hover:underline bg-[#141414]/5 sm:bg-transparent">Detalhes</button>
+              <div className="w-full sm:text-right flex sm:flex-col gap-2">
+                <div className="flex gap-2 sm:justify-end">
+                  {order.locationUrl && (
+                    <a 
+                      href={order.locationUrl} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="py-1 text-[10px] font-bold uppercase tracking-widest text-blue-600 hover:underline flex items-center gap-1"
+                    >
+                      <MapPin size={12} />
+                      Localização
+                    </a>
+                  )}
+                  {order.customerPhone && (
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleWhatsAppCustomer(order);
+                      }}
+                      className="py-1 text-[10px] font-bold uppercase tracking-widest text-green-600 hover:underline flex items-center gap-1"
+                    >
+                      <MessageSquare size={12} />
+                      WhatsApp
+                    </button>
+                  )}
+                </div>
+                <button className="flex-1 sm:flex-none py-2 sm:py-0 text-[10px] font-bold uppercase tracking-widest underline sm:no-underline sm:hover:underline bg-[#141414]/5 sm:bg-transparent">Detalhes</button>
               </div>
             </div>
           ))
@@ -1135,17 +1256,52 @@ function DeliveryView({ orders }: { orders: Order[] }) {
 }
 
 function MenuView({ products, onAddProduct, onEditProduct }: { products: Product[], onAddProduct: () => void, onEditProduct: (p: Product) => void }) {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+
+  const filteredProducts = products.filter(p => {
+    const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesCategory = !selectedCategory || p.category === selectedCategory;
+    return matchesSearch && matchesCategory;
+  });
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:justify-between md:items-end gap-4">
         <div>
           <h2 className="font-serif italic text-3xl md:text-4xl">Cardápio</h2>
-          <p className="text-[10px] uppercase font-bold tracking-widest opacity-40 mt-1">{products.length} itens cadastrados</p>
+          <p className="text-[10px] uppercase font-bold tracking-widest opacity-40 mt-1">{filteredProducts.length} itens encontrados</p>
         </div>
         <div className="flex flex-col sm:flex-row gap-3">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 opacity-30" size={14} />
+            <input 
+              type="text"
+              placeholder="Buscar no cardápio..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full sm:w-64 pl-10 pr-4 py-2 border border-[#141414] text-[10px] font-bold uppercase focus:ring-1 focus:ring-[#141414] outline-none"
+            />
+          </div>
           <div className="flex gap-2 overflow-x-auto pb-2 md:pb-0 no-scrollbar">
-            {['Todos', 'Bebidas', 'Pratos', 'Sobremesas'].map(cat => (
-              <button key={cat} className="whitespace-nowrap px-4 py-1.5 border border-[#141414] text-[10px] font-bold uppercase tracking-widest hover:bg-[#141414] hover:text-[#E4E3E0] transition-colors">
+            <button 
+              onClick={() => setSelectedCategory(null)}
+              className={cn(
+                "whitespace-nowrap px-4 py-1.5 border border-[#141414] text-[10px] font-bold uppercase tracking-widest transition-colors",
+                selectedCategory === null ? "bg-[#141414] text-[#E4E3E0]" : "hover:bg-[#141414] hover:text-[#E4E3E0]"
+              )}
+            >
+              Todos
+            </button>
+            {['Bebidas', 'Pratos', 'Sobremesas', 'Entradas'].map(cat => (
+              <button 
+                key={cat}
+                onClick={() => setSelectedCategory(cat)}
+                className={cn(
+                  "whitespace-nowrap px-4 py-1.5 border border-[#141414] text-[10px] font-bold uppercase tracking-widest transition-colors",
+                  selectedCategory === cat ? "bg-[#141414] text-[#E4E3E0]" : "hover:bg-[#141414] hover:text-[#E4E3E0]"
+                )}
+              >
                 {cat}
               </button>
             ))}
@@ -1160,10 +1316,10 @@ function MenuView({ products, onAddProduct, onEditProduct }: { products: Product
         </div>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
-        {products.length === 0 ? (
-          <p className="col-span-full p-12 text-center text-sm opacity-30 italic">Nenhum produto cadastrado.</p>
+        {filteredProducts.length === 0 ? (
+          <p className="col-span-full p-12 text-center text-sm opacity-30 italic">Nenhum produto encontrado.</p>
         ) : (
-          products.map(product => (
+          filteredProducts.map(product => (
             <div key={product.id} className="bg-white border border-[#141414] group overflow-hidden flex flex-row sm:flex-col h-32 sm:h-auto">
               <div className="w-32 sm:w-full h-full sm:h-40 bg-[#141414]/10 flex items-center justify-center overflow-hidden shrink-0">
                 <img 
@@ -1178,6 +1334,12 @@ function MenuView({ products, onAddProduct, onEditProduct }: { products: Product
                   <div>
                     <p className="text-[8px] md:text-[10px] uppercase font-bold opacity-40">{product.category}</p>
                     <h4 className="font-serif italic text-base md:text-lg leading-tight">{product.name}</h4>
+                    {product.barcode && (
+                      <div className="flex items-center gap-1 opacity-30 mt-1">
+                        <Barcode size={10} />
+                        <span className="text-[8px] font-mono">{product.barcode}</span>
+                      </div>
+                    )}
                   </div>
                   <span className="font-mono font-bold text-sm md:text-base whitespace-nowrap">R$ {product.price.toFixed(2)}</span>
                 </div>
@@ -1456,6 +1618,126 @@ function SettingsView({ user, logout, settings, onOpenPublicMenu, showToast }: {
               </div>
             </div>
           </section>
+          <section className="space-y-4">
+            <h3 className="text-[10px] font-bold uppercase tracking-widest opacity-50">Templates de WhatsApp</h3>
+            <div className="bg-white border border-[#141414] p-6 space-y-4">
+              <div>
+                <label className="text-[10px] font-bold uppercase tracking-widest opacity-40 block mb-1">Pedido Recebido</label>
+                <textarea 
+                  value={localSettings.whatsappTemplates?.orderReceived || ''}
+                  onChange={(e) => setLocalSettings(prev => ({ 
+                    ...prev, 
+                    whatsappTemplates: { ...prev.whatsappTemplates, orderReceived: e.target.value } 
+                  }))}
+                  placeholder="Olá {name}! Recebemos seu pedido #{id}..."
+                  className="w-full border border-[#141414] p-2 text-xs focus:ring-1 focus:ring-[#141414] outline-none h-20 resize-none"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold uppercase tracking-widest opacity-40 block mb-1">Em Preparação</label>
+                <textarea 
+                  value={localSettings.whatsappTemplates?.orderPreparing || ''}
+                  onChange={(e) => setLocalSettings(prev => ({ 
+                    ...prev, 
+                    whatsappTemplates: { ...prev.whatsappTemplates, orderPreparing: e.target.value } 
+                  }))}
+                  placeholder="Seu pedido #{id} está sendo preparado..."
+                  className="w-full border border-[#141414] p-2 text-xs focus:ring-1 focus:ring-[#141414] outline-none h-20 resize-none"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold uppercase tracking-widest opacity-40 block mb-1">Saiu para Entrega</label>
+                <textarea 
+                  value={localSettings.whatsappTemplates?.orderDelivering || ''}
+                  onChange={(e) => setLocalSettings(prev => ({ 
+                    ...prev, 
+                    whatsappTemplates: { ...prev.whatsappTemplates, orderDelivering: e.target.value } 
+                  }))}
+                  placeholder="Seu pedido #{id} saiu para entrega!"
+                  className="w-full border border-[#141414] p-2 text-xs focus:ring-1 focus:ring-[#141414] outline-none h-20 resize-none"
+                />
+              </div>
+              <p className="text-[8px] opacity-40 italic">Use tags: {'{name}, {id}, {total}, {items}'}</p>
+            </div>
+          </section>
+
+          <section className="space-y-4">
+            <h3 className="text-[10px] font-bold uppercase tracking-widest opacity-50">Dados Fiscais (Opcional)</h3>
+            <div className="bg-white border border-[#141414] p-6 space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[10px] font-bold uppercase tracking-widest opacity-40 block mb-1">CNPJ</label>
+                  <input 
+                    type="text" 
+                    value={localSettings.CNPJ || ''}
+                    onChange={(e) => setLocalSettings(prev => ({ ...prev, CNPJ: e.target.value }))}
+                    className="w-full border border-[#141414] p-2 text-sm focus:ring-1 focus:ring-[#141414] outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold uppercase tracking-widest opacity-40 block mb-1">Inscrição Estadual</label>
+                  <input 
+                    type="text" 
+                    value={localSettings.IE || ''}
+                    onChange={(e) => setLocalSettings(prev => ({ ...prev, IE: e.target.value }))}
+                    className="w-full border border-[#141414] p-2 text-sm focus:ring-1 focus:ring-[#141414] outline-none"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <label className="text-[10px] font-bold uppercase tracking-widest opacity-40 block mb-1">UF</label>
+                  <input 
+                    type="text" 
+                    value={localSettings.UF || ''}
+                    onChange={(e) => setLocalSettings(prev => ({ ...prev, UF: e.target.value }))}
+                    className="w-full border border-[#141414] p-2 text-sm focus:ring-1 focus:ring-[#141414] outline-none"
+                    placeholder="SP"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold uppercase tracking-widest opacity-40 block mb-1">CEP</label>
+                  <input 
+                    type="text" 
+                    value={localSettings.CEP || ''}
+                    onChange={(e) => setLocalSettings(prev => ({ ...prev, CEP: e.target.value }))}
+                    className="w-full border border-[#141414] p-2 text-sm focus:ring-1 focus:ring-[#141414] outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold uppercase tracking-widest opacity-40 block mb-1">Município</label>
+                  <input 
+                    type="text" 
+                    value={localSettings.xMun || ''}
+                    onChange={(e) => setLocalSettings(prev => ({ ...prev, xMun: e.target.value }))}
+                    className="w-full border border-[#141414] p-2 text-sm focus:ring-1 focus:ring-[#141414] outline-none"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[10px] font-bold uppercase tracking-widest opacity-40 block mb-1">Cód. Município (IBGE)</label>
+                  <input 
+                    type="text" 
+                    value={localSettings.cMun || ''}
+                    onChange={(e) => setLocalSettings(prev => ({ ...prev, cMun: e.target.value }))}
+                    className="w-full border border-[#141414] p-2 text-sm focus:ring-1 focus:ring-[#141414] outline-none"
+                    placeholder="3550308"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold uppercase tracking-widest opacity-40 block mb-1">Cód. UF (IBGE)</label>
+                  <input 
+                    type="text" 
+                    value={localSettings.cUF || ''}
+                    onChange={(e) => setLocalSettings(prev => ({ ...prev, cUF: e.target.value }))}
+                    className="w-full border border-[#141414] p-2 text-sm focus:ring-1 focus:ring-[#141414] outline-none"
+                    placeholder="35"
+                  />
+                </div>
+              </div>
+            </div>
+          </section>
         </div>
       </div>
     </div>
@@ -1642,33 +1924,44 @@ function TableModal({ isOpen, onClose, table, showConfirm, showToast }: { isOpen
 function ProductModal({ isOpen, onClose, product, showConfirm, showToast }: { isOpen: boolean, onClose: () => void, product: Product | null, showConfirm: (title: string, message: string, onConfirm: () => void, onCancel?: () => void) => void, showToast: (message: string, type?: 'success' | 'error' | 'info') => void }) {
   const [name, setName] = useState(product?.name || '');
   const [price, setPrice] = useState(product?.price || 0);
+  const [cost, setCost] = useState(product?.cost || 0);
   const [category, setCategory] = useState(product?.category || 'Pratos');
   const [imageUrl, setImageUrl] = useState(product?.imageUrl || '');
+  const [barcode, setBarcode] = useState(product?.barcode || '');
   const [loading, setLoading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (product) {
       setName(product.name);
       setPrice(product.price);
+      setCost(product.cost || 0);
       setCategory(product.category);
       setImageUrl(product.imageUrl || '');
+      setBarcode(product.barcode || '');
     } else {
       setName('');
       setPrice(0);
+      setCost(0);
       setCategory('Pratos');
       setImageUrl('');
+      setBarcode('');
     }
   }, [product]);
 
   const handleSave = async () => {
+    if (!name || price <= 0) {
+      showToast("Preencha o nome e o preço corretamente.", "error");
+      return;
+    }
     setLoading(true);
     try {
-      const data = { name, price, category, imageUrl, updatedAt: serverTimestamp() };
+      const data = { name, price, cost, category, imageUrl, barcode, updatedAt: serverTimestamp() };
       if (product) {
         await updateDoc(doc(db, 'products', product.id), data);
         showToast("Produto atualizado!", "success");
       } else {
-        await addDoc(collection(db, 'products'), { ...data, createdAt: serverTimestamp() });
+        await addDoc(collection(db, 'products'), { ...data, createdAt: serverTimestamp(), available: true });
         showToast("Produto cadastrado!", "success");
       }
       onClose();
@@ -1676,6 +1969,21 @@ function ProductModal({ isOpen, onClose, product, showConfirm, showToast }: { is
       handleFirestoreError(error, product ? OperationType.UPDATE : OperationType.CREATE, product ? `products/${product.id}` : 'products');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleImageUpload = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 500000) { // 500KB limit for base64 in Firestore
+        showToast("A imagem é muito grande. Use uma imagem menor que 500KB.", "error");
+        return;
+      }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImageUrl(reader.result as string);
+      };
+      reader.readAsDataURL(file);
     }
   };
 
@@ -1706,53 +2014,119 @@ function ProductModal({ isOpen, onClose, product, showConfirm, showToast }: { is
       <motion.div 
         initial={{ scale: 0.9, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
-        className="bg-white border border-[#141414] w-full max-w-sm p-8 shadow-[20px_20px_0px_0px_rgba(20,20,20,1)]"
+        className="bg-white border border-[#141414] w-full max-w-md p-8 shadow-[20px_20px_0px_0px_rgba(20,20,20,1)] max-h-[90vh] overflow-y-auto"
       >
         <h3 className="font-serif italic text-3xl mb-6">{product ? 'Editar Produto' : 'Novo Produto'}</h3>
         
         <div className="space-y-4">
-          <div>
-            <label className="text-[10px] font-bold uppercase tracking-widest opacity-50 block mb-1">Nome</label>
+          <div className="flex justify-center mb-4">
+            <div className="flex flex-col items-center gap-2">
+              <div 
+                onClick={() => fileInputRef.current?.click()}
+                className="w-32 h-32 border-2 border-dashed border-[#141414]/20 flex flex-col items-center justify-center cursor-pointer hover:bg-[#141414]/5 transition-colors overflow-hidden"
+              >
+                {imageUrl ? (
+                  <img src={imageUrl} alt="Preview" className="w-full h-full object-cover" />
+                ) : (
+                  <>
+                    <Camera size={24} className="opacity-30 mb-2" />
+                    <span className="text-[8px] font-bold uppercase opacity-40">Upload Foto</span>
+                  </>
+                )}
+              </div>
+              {imageUrl && (
+                <button 
+                  onClick={() => setImageUrl('')}
+                  className="text-[8px] font-bold uppercase tracking-widest text-red-500 hover:underline"
+                >
+                  Remover Foto
+                </button>
+              )}
+            </div>
             <input 
-              type="text" 
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="w-full border border-[#141414] p-2 text-sm focus:ring-1 focus:ring-[#141414] outline-none"
+              type="file" 
+              ref={fileInputRef} 
+              onChange={handleImageUpload} 
+              accept="image/*" 
+              className="hidden" 
             />
           </div>
 
-          <div>
-            <label className="text-[10px] font-bold uppercase tracking-widest opacity-50 block mb-1">Preço (R$)</label>
-            <input 
-              type="number" 
-              value={price}
-              onChange={(e) => setPrice(parseFloat(e.target.value))}
-              className="w-full border border-[#141414] p-2 font-mono text-sm focus:ring-1 focus:ring-[#141414] outline-none"
-            />
-          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="col-span-2">
+              <label className="text-[10px] font-bold uppercase tracking-widest opacity-50 block mb-1">Nome</label>
+              <input 
+                type="text" 
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="w-full border border-[#141414] p-2 text-sm focus:ring-1 focus:ring-[#141414] outline-none"
+              />
+            </div>
 
-          <div>
-            <label className="text-[10px] font-bold uppercase tracking-widest opacity-50 block mb-1">Categoria</label>
-            <select 
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              className="w-full border border-[#141414] p-2 text-xs uppercase font-bold tracking-widest focus:ring-1 focus:ring-[#141414] outline-none"
-            >
-              <option value="Bebidas">Bebidas</option>
-              <option value="Pratos">Pratos</option>
-              <option value="Sobremesas">Sobremesas</option>
-            </select>
+            <div>
+              <label className="text-[10px] font-bold uppercase tracking-widest opacity-50 block mb-1">Preço Venda (R$)</label>
+              <input 
+                type="number" 
+                value={price}
+                onChange={(e) => setPrice(parseFloat(e.target.value))}
+                className="w-full border border-[#141414] p-2 font-mono text-sm focus:ring-1 focus:ring-[#141414] outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="text-[10px] font-bold uppercase tracking-widest opacity-50 block mb-1">Custo (R$)</label>
+              <input 
+                type="number" 
+                value={cost}
+                onChange={(e) => setCost(parseFloat(e.target.value))}
+                className="w-full border border-[#141414] p-2 font-mono text-sm focus:ring-1 focus:ring-[#141414] outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="text-[10px] font-bold uppercase tracking-widest opacity-50 block mb-1">Categoria</label>
+              <select 
+                value={category}
+                onChange={(e) => setCategory(e.target.value as any)}
+                className="w-full border border-[#141414] p-2 text-xs uppercase font-bold tracking-widest focus:ring-1 focus:ring-[#141414] outline-none"
+              >
+                <option value="Bebidas">Bebidas</option>
+                <option value="Pratos">Pratos</option>
+                <option value="Sobremesas">Sobremesas</option>
+                <option value="Entradas">Entradas</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="text-[10px] font-bold uppercase tracking-widest opacity-50 block mb-1">Cód. Barras</label>
+              <input 
+                type="text" 
+                value={barcode}
+                onChange={(e) => setBarcode(e.target.value)}
+                className="w-full border border-[#141414] p-2 text-[10px] font-mono focus:ring-1 focus:ring-[#141414] outline-none"
+                placeholder="EAN-13 / SKU"
+              />
+            </div>
           </div>
 
           <div>
             <label className="text-[10px] font-bold uppercase tracking-widest opacity-50 block mb-1">URL da Imagem (Opcional)</label>
             <input 
               type="text" 
-              value={imageUrl}
+              value={imageUrl.startsWith('data:') ? 'Imagem carregada via upload' : imageUrl}
+              readOnly={imageUrl.startsWith('data:')}
               onChange={(e) => setImageUrl(e.target.value)}
               className="w-full border border-[#141414] p-2 text-[10px] focus:ring-1 focus:ring-[#141414] outline-none"
               placeholder="https://exemplo.com/imagem.jpg"
             />
+            {imageUrl.startsWith('data:') && (
+              <button 
+                onClick={() => setImageUrl('')}
+                className="text-[8px] font-bold uppercase text-red-500 mt-1"
+              >
+                Remover Upload
+              </button>
+            )}
           </div>
 
           <div className="pt-4 flex flex-col gap-2">
@@ -1908,15 +2282,27 @@ function WaiterModal({ isOpen, onClose, waiter, showConfirm, showToast }: { isOp
   );
 }
 
-function OrderModal({ isOpen, onClose, tables, products, waiters, settings, initialTableId, showToast }: { isOpen: boolean, onClose: () => void, tables: Table[], products: Product[], waiters: Waiter[], settings: RestaurantSettings | null, initialTableId?: string, showToast: (message: string, type?: 'success' | 'error' | 'info') => void }) {
+function OrderModal({ isOpen, onClose, tables, products, waiters, settings, initialTableId, initialType, showToast }: { isOpen: boolean, onClose: () => void, tables: Table[], products: Product[], waiters: Waiter[], settings: RestaurantSettings | null, initialTableId?: string, initialType?: 'TABLE' | 'DELIVERY', showToast: (message: string, type?: 'success' | 'error' | 'info') => void }) {
   const [type, setType] = useState<'TABLE' | 'DELIVERY'>('TABLE');
   const [tableId, setTableId] = useState(initialTableId || '');
   const [waiterId, setWaiterId] = useState('');
   const [peopleCount, setPeopleCount] = useState(1);
+  const [customerName, setCustomerName] = useState('');
+  const [customerPhone, setCustomerPhone] = useState('');
+  const [deliveryAddress, setDeliveryAddress] = useState('');
+  const [locationUrl, setLocationUrl] = useState('');
+  const [deliveryFee, setDeliveryFee] = useState(0);
   const [selectedProducts, setSelectedProducts] = useState<{ id: string, quantity: number }[]>([]);
   const [loading, setLoading] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
   useEffect(() => {
+    if (isOpen) {
+      setSearchTerm('');
+      setSelectedCategory(null);
+      if (initialType) setType(initialType);
+    }
     if (initialTableId) {
       setTableId(initialTableId);
       setType('TABLE');
@@ -1952,28 +2338,34 @@ function OrderModal({ isOpen, onClose, tables, products, waiters, settings, init
     try {
       const subtotal = calculateTotal();
       const serviceFeeRate = (settings?.serviceFee || 10) / 100;
-      const serviceFee = subtotal * serviceFeeRate;
-      const total = subtotal + serviceFee;
+      const serviceFee = type === 'TABLE' ? subtotal * serviceFeeRate : 0;
+      const total = subtotal + serviceFee + (type === 'DELIVERY' ? deliveryFee : 0);
 
       const orderData = {
         type,
         status: 'OPEN',
         tableId: type === 'TABLE' ? tableId : null,
         waiterId: waiterId || null,
+        customerName: type === 'DELIVERY' ? customerName : null,
+        customerPhone: type === 'DELIVERY' ? customerPhone : null,
+        deliveryAddress: type === 'DELIVERY' ? deliveryAddress : null,
+        locationUrl: type === 'DELIVERY' ? locationUrl : null,
         items: selectedProducts.map(sp => {
           const p = products.find(prod => prod.id === sp.id)!;
           return {
             productId: p.id,
             name: p.name,
             price: p.price,
+            cost: p.cost,
             quantity: sp.quantity
           };
         }),
         subtotal,
         serviceFee,
-        deliveryFee: 0,
+        deliveryFee: type === 'DELIVERY' ? deliveryFee : 0,
         total,
-        peopleCount,
+        peopleCount: type === 'TABLE' ? peopleCount : 1,
+        platform: type === 'DELIVERY' ? 'Manual' : null,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       };
@@ -1991,11 +2383,34 @@ function OrderModal({ isOpen, onClose, tables, products, waiters, settings, init
       onClose();
       setSelectedProducts([]);
       setTableId('');
+      setCustomerName('');
+      setCustomerPhone('');
+      setDeliveryAddress('');
+      setLocationUrl('');
+      setDeliveryFee(0);
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, 'orders');
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleGetLocation = () => {
+    if (!navigator.geolocation) {
+      return showToast("Geolocalização não suportada pelo navegador", "error");
+    }
+    
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const { latitude, longitude } = position.coords;
+        const url = `https://www.google.com/maps?q=${latitude},${longitude}`;
+        setLocationUrl(url);
+        showToast("Localização capturada!", "success");
+      },
+      (error) => {
+        showToast("Erro ao capturar localização: " + error.message, "error");
+      }
+    );
   };
 
   if (!isOpen) return null;
@@ -2039,19 +2454,91 @@ function OrderModal({ isOpen, onClose, tables, products, waiters, settings, init
                 </button>
               </div>
 
-              {type === 'TABLE' && (
-                <div>
-                  <label className="text-[10px] font-bold uppercase tracking-widest opacity-50 block mb-2">Mesa</label>
-                  <select 
-                    value={tableId}
-                    onChange={(e) => setTableId(e.target.value)}
-                    className="w-full border border-[#141414] p-3 font-bold text-xs uppercase tracking-widest"
-                  >
-                    <option value="">Selecione a Mesa</option>
-                    {tables.filter(t => t.status === 'Livre').map(t => (
-                      <option key={t.id} value={t.id}>Mesa {t.number}</option>
-                    ))}
-                  </select>
+              {type === 'TABLE' ? (
+                <div className="space-y-4">
+                  <div>
+                    <label className="text-[10px] font-bold uppercase tracking-widest opacity-50 block mb-2">Mesa</label>
+                    <select 
+                      value={tableId}
+                      onChange={(e) => setTableId(e.target.value)}
+                      className="w-full border border-[#141414] p-3 font-bold text-xs uppercase tracking-widest"
+                    >
+                      <option value="">Selecione a Mesa</option>
+                      {tables.filter(t => t.status === 'Livre').map(t => (
+                        <option key={t.id} value={t.id}>Mesa {t.number}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold uppercase tracking-widest opacity-50 block mb-2">Pessoas na Mesa</label>
+                    <input 
+                      type="number"
+                      min="1"
+                      value={peopleCount}
+                      onChange={(e) => setPeopleCount(parseInt(e.target.value) || 1)}
+                      className="w-full border border-[#141414] p-3 font-bold text-xs uppercase tracking-widest"
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div>
+                    <label className="text-[10px] font-bold uppercase tracking-widest opacity-50 block mb-2">Nome do Cliente</label>
+                    <input 
+                      type="text" 
+                      value={customerName}
+                      onChange={(e) => setCustomerName(e.target.value)}
+                      className="w-full border border-[#141414] p-3 font-bold text-xs uppercase tracking-widest"
+                      placeholder="Ex: João Silva"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold uppercase tracking-widest opacity-50 block mb-2">Telefone / WhatsApp</label>
+                    <input 
+                      type="text" 
+                      value={customerPhone}
+                      onChange={(e) => setCustomerPhone(e.target.value)}
+                      className="w-full border border-[#141414] p-3 font-bold text-xs uppercase tracking-widest"
+                      placeholder="Ex: (11) 99999-9999"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold uppercase tracking-widest opacity-50 block mb-2">Endereço de Entrega</label>
+                    <textarea 
+                      value={deliveryAddress}
+                      onChange={(e) => setDeliveryAddress(e.target.value)}
+                      className="w-full border border-[#141414] p-3 font-bold text-xs uppercase tracking-widest h-24 resize-none"
+                      placeholder="Rua, Número, Bairro, Complemento..."
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold uppercase tracking-widest opacity-50 block mb-2">Taxa de Entrega (R$)</label>
+                    <input 
+                      type="number" 
+                      value={deliveryFee}
+                      onChange={(e) => setDeliveryFee(parseFloat(e.target.value) || 0)}
+                      className="w-full border border-[#141414] p-3 font-bold text-xs uppercase tracking-widest"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold uppercase tracking-widest opacity-50 block mb-2">Geolocalização</label>
+                    <div className="flex gap-2">
+                      <input 
+                        type="text" 
+                        value={locationUrl}
+                        readOnly
+                        className="flex-1 border border-[#141414] p-3 font-mono text-[10px] bg-gray-50 outline-none"
+                        placeholder="Link do Google Maps"
+                      />
+                      <button 
+                        onClick={handleGetLocation}
+                        className="p-3 border border-[#141414] hover:bg-[#141414] hover:text-[#E4E3E0] transition-colors flex items-center gap-2 text-[10px] font-bold uppercase"
+                      >
+                        <MapPin size={14} />
+                        Capturar
+                      </button>
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -2070,20 +2557,54 @@ function OrderModal({ isOpen, onClose, tables, products, waiters, settings, init
               </div>
 
               <div>
-                <label className="text-[10px] font-bold uppercase tracking-widest opacity-50 block mb-2">Pessoas na Mesa</label>
-                <input 
-                  type="number"
-                  min="1"
-                  value={peopleCount}
-                  onChange={(e) => setPeopleCount(parseInt(e.target.value) || 1)}
-                  className="w-full border border-[#141414] p-3 font-bold text-xs uppercase tracking-widest"
-                />
-              </div>
+                <div className="flex justify-between items-center mb-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest opacity-50">Produtos</label>
+                  <div className="flex items-center gap-2">
+                    <div className="relative">
+                      <Search className="absolute left-2 top-1/2 -translate-y-1/2 opacity-30" size={12} />
+                      <input 
+                        type="text"
+                        placeholder="Buscar..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        className="pl-7 pr-2 py-1 border border-[#141414] text-[10px] font-bold uppercase focus:ring-1 focus:ring-[#141414] outline-none w-32"
+                      />
+                    </div>
+                  </div>
+                </div>
 
-              <div>
-                <label className="text-[10px] font-bold uppercase tracking-widest opacity-50 block mb-2">Produtos</label>
-                <div className="grid grid-cols-2 gap-2">
-                  {products.map(p => (
+                <div className="flex flex-wrap gap-1 mb-3">
+                  <button 
+                    onClick={() => setSelectedCategory(null)}
+                    className={cn(
+                      "px-2 py-1 text-[8px] font-bold uppercase tracking-widest border border-[#141414]",
+                      selectedCategory === null ? "bg-[#141414] text-[#E4E3E0]" : "hover:bg-[#141414]/5"
+                    )}
+                  >
+                    Todos
+                  </button>
+                  {['Bebidas', 'Pratos', 'Sobremesas', 'Entradas'].map(cat => (
+                    <button 
+                      key={cat}
+                      onClick={() => setSelectedCategory(cat)}
+                      className={cn(
+                        "px-2 py-1 text-[8px] font-bold uppercase tracking-widest border border-[#141414]",
+                        selectedCategory === cat ? "bg-[#141414] text-[#E4E3E0]" : "hover:bg-[#141414]/5"
+                      )}
+                    >
+                      {cat}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 max-h-[300px] overflow-y-auto pr-1 custom-scrollbar">
+                  {products
+                    .filter(p => {
+                      const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase());
+                      const matchesCategory = !selectedCategory || p.category === selectedCategory;
+                      return matchesSearch && matchesCategory && p.available;
+                    })
+                    .map(p => (
                     <button 
                       key={p.id}
                       onClick={() => handleAddProduct(p.id)}
@@ -2093,6 +2614,13 @@ function OrderModal({ isOpen, onClose, tables, products, waiters, settings, init
                       <p className="text-[10px] opacity-50 group-hover:opacity-100 font-mono">R$ {p.price.toFixed(2)}</p>
                     </button>
                   ))}
+                  {products.filter(p => {
+                    const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase());
+                    const matchesCategory = !selectedCategory || p.category === selectedCategory;
+                    return matchesSearch && matchesCategory && p.available;
+                  }).length === 0 && (
+                    <p className="col-span-2 text-center py-8 text-[10px] opacity-30 italic">Nenhum produto encontrado</p>
+                  )}
                 </div>
               </div>
             </div>
@@ -2154,6 +2682,8 @@ function PublicMenuView({ products, settings, onBack, showToast, tables }: { pro
   const [cart, setCart] = useState<{ id: string, quantity: number }[]>([]);
   const [customerName, setCustomerName] = useState('');
   const [tableNumber, setTableNumber] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
@@ -2190,21 +2720,18 @@ function PublicMenuView({ products, settings, onBack, showToast, tables }: { pro
     if (!customerName) return showToast("Por favor, informe seu nome.", "error");
     if (cart.length === 0) return showToast("Seu carrinho está vazio.", "error");
 
-    const itemsText = cart.map(item => {
-      const p = products.find(prod => prod.id === item.id);
-      return `• ${p?.name} (x${item.quantity}): R$ ${((p?.price || 0) * item.quantity).toFixed(2)}`;
-    }).join('%0A');
+    const order: any = {
+      id: 'temp_' + Date.now(),
+      customerName,
+      items: cart.map(item => {
+        const p = products.find(prod => prod.id === item.id)!;
+        return { name: p.name, quantity: item.quantity, price: p.price };
+      }),
+      total: calculateTotal() * (1 + (settings?.serviceFee || 10) / 100),
+      tableId: tableNumber
+    };
 
-    const total = calculateTotal();
-    const text = `*NOVO PEDIDO - ${settings?.restaurantName || 'FLUXBar'}*%0A%0A` +
-      `*Cliente:* ${customerName}%0A` +
-      `${tableNumber ? `*Mesa:* ${tableNumber}%0A` : ''}` +
-      `*Itens:*%0A${itemsText}%0A%0A` +
-      `*TOTAL:* R$ ${total.toFixed(2)}%0A%0A` +
-      `Enviado via Cardápio Digital.`;
-
-    const whatsappNumber = settings?.whatsappNumber || '';
-    window.open(`https://wa.me/${whatsappNumber}?text=${text}`, '_blank');
+    WhatsAppService.sendToRestaurant(order, settings);
     showToast("Pedido enviado via WhatsApp!", "success");
   };
 
@@ -2219,8 +2746,51 @@ function PublicMenuView({ products, settings, onBack, showToast, tables }: { pro
           <button onClick={onBack} className="text-[10px] font-bold uppercase underline">Voltar</button>
         </div>
 
+        <div className="space-y-4 mb-8">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 opacity-30" size={16} />
+            <input 
+              type="text"
+              placeholder="O que você procura?"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-10 pr-4 py-3 border border-[#141414] text-sm font-bold uppercase focus:ring-1 focus:ring-[#141414] outline-none"
+            />
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <button 
+              onClick={() => setSelectedCategory(null)}
+              className={cn(
+                "px-4 py-2 text-[10px] font-bold uppercase tracking-widest border border-[#141414]",
+                selectedCategory === null ? "bg-[#141414] text-[#E4E3E0]" : "hover:bg-[#141414]/5"
+              )}
+            >
+              Todos
+            </button>
+            {['Bebidas', 'Pratos', 'Sobremesas', 'Entradas'].map(cat => (
+              <button 
+                key={cat}
+                onClick={() => setSelectedCategory(cat)}
+                className={cn(
+                  "px-4 py-2 text-[10px] font-bold uppercase tracking-widest border border-[#141414]",
+                  selectedCategory === cat ? "bg-[#141414] text-[#E4E3E0]" : "hover:bg-[#141414]/5"
+                )}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
+        </div>
+
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {products.map(p => (
+          {products
+            .filter(p => {
+              const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase());
+              const matchesCategory = !selectedCategory || p.category === selectedCategory;
+              return matchesSearch && matchesCategory && p.available;
+            })
+            .map(p => (
             <div key={p.id} className="border border-[#141414] p-3 flex gap-3 group">
               <div className="w-16 h-16 bg-[#141414]/5 shrink-0 overflow-hidden">
                 <img src={p.imageUrl || `https://picsum.photos/seed/${p.id}/100/100`} alt="" className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all" />
@@ -2239,6 +2809,13 @@ function PublicMenuView({ products, settings, onBack, showToast, tables }: { pro
               </div>
             </div>
           ))}
+          {products.filter(p => {
+            const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase());
+            const matchesCategory = !selectedCategory || p.category === selectedCategory;
+            return matchesSearch && matchesCategory && p.available;
+          }).length === 0 && (
+            <p className="col-span-2 text-center py-12 text-sm opacity-30 italic">Nenhum produto encontrado</p>
+          )}
         </div>
       </div>
 
@@ -2313,9 +2890,13 @@ function OrderDetailsModal({ isOpen, onClose, orderId, products, settings, table
   const [addingItems, setAddingItems] = useState(false);
   const [newItems, setNewItems] = useState<{ id: string, quantity: number }[]>([]);
   const [loadingInvoice, setLoadingInvoice] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
   useEffect(() => {
     if (!orderId || !isOpen) return;
+    setSearchTerm('');
+    setSelectedCategory(null);
     const unsub = onSnapshot(doc(db, 'orders', orderId), (doc) => {
       if (doc.exists()) {
         setOrder({ id: doc.id, ...doc.data() } as Order);
@@ -2371,6 +2952,7 @@ function OrderDetailsModal({ isOpen, onClose, orderId, products, settings, table
           productId: p.id,
           name: p.name,
           price: p.price,
+          cost: p.cost || 0,
           quantity: ni.quantity
         };
       });
@@ -2395,6 +2977,65 @@ function OrderDetailsModal({ isOpen, onClose, orderId, products, settings, table
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleUpdateItemQuantity = async (index: number, newQuantity: number) => {
+    if (!order) return;
+    if (newQuantity < 1) {
+      handleRemoveItem(index);
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const updatedItems = order.items.map((item, i) => i === index ? { ...item, quantity: newQuantity } : item);
+      const subtotal = updatedItems.reduce((acc, item) => acc + item.price * item.quantity, 0);
+      const serviceFee = subtotal * ((settings?.serviceFee || 10) / 100);
+      const total = subtotal + serviceFee;
+
+      await updateDoc(doc(db, 'orders', order.id), {
+        items: updatedItems,
+        subtotal,
+        serviceFee,
+        total,
+        updatedAt: serverTimestamp()
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `orders/${order.id}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRemoveItem = async (index: number) => {
+    if (!order) return;
+    
+    showConfirm(
+      "Remover Item",
+      `Deseja remover o item "${order.items[index].name}" do pedido?`,
+      async () => {
+        setLoading(true);
+        try {
+          const updatedItems = order.items.filter((_, i) => i !== index);
+          const subtotal = updatedItems.reduce((acc, item) => acc + item.price * item.quantity, 0);
+          const serviceFee = subtotal * ((settings?.serviceFee || 10) / 100);
+          const total = subtotal + serviceFee;
+
+          await updateDoc(doc(db, 'orders', order.id), {
+            items: updatedItems,
+            subtotal,
+            serviceFee,
+            total,
+            updatedAt: serverTimestamp()
+          });
+          showToast("Item removido com sucesso!", "success");
+        } catch (error) {
+          handleFirestoreError(error, OperationType.UPDATE, `orders/${order.id}`);
+        } finally {
+          setLoading(false);
+        }
+      }
+    );
   };
 
   const handlePrint = () => {
@@ -2427,7 +3068,12 @@ function OrderDetailsModal({ isOpen, onClose, orderId, products, settings, table
           <h2>${settings?.restaurantName || 'FLUXBar'}</h2>
           <p><b>PEDIDO:</b> #${order.id.slice(0, 8).toUpperCase()}</p>
           <p><b>DATA:</b> ${new Date().toLocaleString('pt-BR')}</p>
-          <p><b>MESA:</b> ${table?.number || order.tableId}</p>
+          <p><b>TIPO:</b> ${order.type === 'TABLE' ? `MESA ${table?.number || order.tableId}` : 'DELIVERY'}</p>
+          ${order.type === 'DELIVERY' ? `
+            <p><b>CLIENTE:</b> ${order.customerName || ''}</p>
+            <p><b>TEL:</b> ${order.customerPhone || ''}</p>
+            <p><b>ENDEREÇO:</b> ${order.deliveryAddress || ''}</p>
+          ` : ''}
           <div class="divider"></div>
           <table>
             <thead>
@@ -2465,17 +3111,13 @@ function OrderDetailsModal({ isOpen, onClose, orderId, products, settings, table
 
   const handleWhatsApp = () => {
     if (!order) return;
-    const itemsText = order.items.map(item => `• ${item.name} (x${item.quantity}): R$ ${(item.price * item.quantity).toFixed(2)}`).join('%0A');
-    const text = `*${settings?.restaurantName || 'FLUXBar'}*%0A%0A` +
-      `*Pedido:* %23${order.id.slice(0, 8).toUpperCase()}%0A` +
-      `*Mesa:* ${table?.number || order.tableId}%0A%0A` +
-      `*Itens:*%0A${itemsText}%0A%0A` +
-      `*Subtotal:* R$ ${order.subtotal.toFixed(2)}%0A` +
-      `*Taxa de Serviço:* R$ ${order.serviceFee.toFixed(2)}%0A` +
-      `*TOTAL:* R$ ${order.total.toFixed(2)}%0A%0A` +
-      `Obrigado pela preferência!`;
     
-    window.open(`https://wa.me/?text=${text}`, '_blank');
+    let templateType: 'received' | 'preparing' | 'delivering' | 'finished' = 'received';
+    if (order.status === 'PREPARING') templateType = 'preparing';
+    if (order.status === 'DELIVERING') templateType = 'delivering';
+    if (order.status === 'FINISHED') templateType = 'finished';
+    
+    WhatsAppService.sendToCustomer(order, settings, templateType);
   };
 
   const handleEmitInvoice = async () => {
@@ -2549,25 +3191,130 @@ function OrderDetailsModal({ isOpen, onClose, orderId, products, settings, table
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          {/* Delivery Info */}
+          {order.type === 'DELIVERY' && (
+            <div className="p-4 bg-blue-50 border border-blue-200 space-y-3">
+              <div className="flex justify-between items-start">
+                <h4 className="text-[10px] font-bold uppercase tracking-widest text-blue-800">Informações de Entrega</h4>
+                {order.locationUrl && (
+                  <a 
+                    href={order.locationUrl} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1 text-[10px] font-bold uppercase text-blue-600 hover:underline"
+                  >
+                    <MapPin size={12} />
+                    Ver no Mapa
+                  </a>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-[8px] uppercase font-bold opacity-50">Cliente</p>
+                  <p className="text-xs font-bold">{order.customerName || 'Não informado'}</p>
+                </div>
+                <div>
+                  <p className="text-[8px] uppercase font-bold opacity-50">Telefone</p>
+                  <p className="text-xs font-bold">{order.customerPhone || 'Não informado'}</p>
+                </div>
+                <div className="col-span-2">
+                  <p className="text-[8px] uppercase font-bold opacity-50">Endereço</p>
+                  <p className="text-xs font-bold">{order.deliveryAddress || 'Não informado'}</p>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Items List */}
           <div className="space-y-3">
             <h4 className="text-[10px] font-bold uppercase tracking-widest opacity-50">Itens do Pedido</h4>
             {order.items.map((item, idx) => (
               <div key={idx} className="flex justify-between items-center border-b border-[#141414]/10 pb-2">
-                <div>
+                <div className="flex-1">
                   <p className="text-xs font-bold">{item.name}</p>
-                  <p className="text-[10px] opacity-50 font-mono">{item.quantity}x R$ {item.price.toFixed(2)}</p>
+                  <p className="text-[10px] opacity-50 font-mono">R$ {item.price.toFixed(2)} un.</p>
                 </div>
-                <p className="text-xs font-mono font-bold">R$ {(item.price * item.quantity).toFixed(2)}</p>
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-2 border border-[#141414] p-1">
+                    <button 
+                      onClick={() => handleUpdateItemQuantity(idx, item.quantity - 1)}
+                      disabled={loading}
+                      className="p-1 hover:bg-[#141414]/5 disabled:opacity-30"
+                    >
+                      <Minus size={12} />
+                    </button>
+                    <span className="text-[10px] font-mono font-bold w-4 text-center">{item.quantity}</span>
+                    <button 
+                      onClick={() => handleUpdateItemQuantity(idx, item.quantity + 1)}
+                      disabled={loading}
+                      className="p-1 hover:bg-[#141414]/5 disabled:opacity-30"
+                    >
+                      <Plus size={12} />
+                    </button>
+                  </div>
+                  <div className="min-w-[70px] text-right">
+                    <p className="text-xs font-mono font-bold">R$ {(item.price * item.quantity).toFixed(2)}</p>
+                  </div>
+                  <button 
+                    onClick={() => handleRemoveItem(idx)}
+                    disabled={loading}
+                    className="p-2 text-red-500 hover:bg-red-50 transition-colors disabled:opacity-30"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
               </div>
             ))}
           </div>
 
           {addingItems && (
             <div className="p-4 bg-[#141414]/5 border border-[#141414] space-y-4">
-              <h4 className="text-[10px] font-bold uppercase tracking-widest">Adicionar Itens</h4>
-              <div className="grid grid-cols-2 gap-2">
-                {products.map(p => (
+              <div className="flex justify-between items-center">
+                <h4 className="text-[10px] font-bold uppercase tracking-widest">Adicionar Itens</h4>
+                <div className="relative">
+                  <Search className="absolute left-2 top-1/2 -translate-y-1/2 opacity-30" size={10} />
+                  <input 
+                    type="text"
+                    placeholder="Buscar..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="pl-6 pr-2 py-1 border border-[#141414] text-[8px] font-bold uppercase focus:ring-1 focus:ring-[#141414] outline-none w-24"
+                  />
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-1">
+                <button 
+                  onClick={() => setSelectedCategory(null)}
+                  className={cn(
+                    "px-2 py-1 text-[7px] font-bold uppercase tracking-widest border border-[#141414]",
+                    selectedCategory === null ? "bg-[#141414] text-[#E4E3E0]" : "hover:bg-[#141414]/5"
+                  )}
+                >
+                  Todos
+                </button>
+                {['Bebidas', 'Pratos', 'Sobremesas', 'Entradas'].map(cat => (
+                  <button 
+                    key={cat}
+                    onClick={() => setSelectedCategory(cat)}
+                    className={cn(
+                      "px-2 py-1 text-[7px] font-bold uppercase tracking-widest border border-[#141414]",
+                      selectedCategory === cat ? "bg-[#141414] text-[#E4E3E0]" : "hover:bg-[#141414]/5"
+                    )}
+                  >
+                    {cat}
+                  </button>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 max-h-[200px] overflow-y-auto pr-1 custom-scrollbar">
+                {products
+                  .filter(p => {
+                    const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase());
+                    const matchesCategory = !selectedCategory || p.category === selectedCategory;
+                    return matchesSearch && matchesCategory && p.available;
+                  })
+                  .map(p => (
                   <button 
                     key={p.id}
                     onClick={() => {
@@ -2582,19 +3329,51 @@ function OrderDetailsModal({ isOpen, onClose, orderId, products, settings, table
                     {p.name}
                   </button>
                 ))}
+                {products.filter(p => {
+                  const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase());
+                  const matchesCategory = !selectedCategory || p.category === selectedCategory;
+                  return matchesSearch && matchesCategory && p.available;
+                }).length === 0 && (
+                  <p className="col-span-2 text-center py-4 text-[10px] opacity-30 italic">Nenhum produto encontrado</p>
+                )}
               </div>
               {newItems.length > 0 && (
-                <div className="space-y-2">
-                  {newItems.map(ni => (
-                    <div key={ni.id} className="flex justify-between text-[10px]">
-                      <span>{products.find(p => p.id === ni.id)?.name} x{ni.quantity}</span>
-                      <button onClick={() => setNewItems(prev => prev.filter(p => p.id !== ni.id))} className="text-red-500">Remover</button>
-                    </div>
-                  ))}
+                <div className="space-y-2 pt-2 border-t border-[#141414]/10">
+                  {newItems.map(ni => {
+                    const p = products.find(prod => prod.id === ni.id);
+                    return (
+                      <div key={ni.id} className="flex justify-between items-center text-[10px]">
+                        <span className="font-bold">{p?.name}</span>
+                        <div className="flex items-center gap-3">
+                          <div className="flex items-center gap-2 border border-[#141414] p-1">
+                            <button 
+                              onClick={() => setNewItems(prev => prev.map(p => p.id === ni.id ? { ...p, quantity: Math.max(1, p.quantity - 1) } : p))}
+                              className="p-0.5 hover:bg-[#141414]/5"
+                            >
+                              <Minus size={10} />
+                            </button>
+                            <span className="font-mono font-bold w-3 text-center">{ni.quantity}</span>
+                            <button 
+                              onClick={() => setNewItems(prev => prev.map(p => p.id === ni.id ? { ...p, quantity: p.quantity + 1 } : p))}
+                              className="p-0.5 hover:bg-[#141414]/5"
+                            >
+                              <Plus size={10} />
+                            </button>
+                          </div>
+                          <button 
+                            onClick={() => setNewItems(prev => prev.filter(p => p.id !== ni.id))} 
+                            className="text-red-500 hover:underline font-bold uppercase"
+                          >
+                            Remover
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
                   <button 
                     onClick={handleAddItems}
                     disabled={loading}
-                    className="w-full bg-[#141414] text-[#E4E3E0] py-2 text-[10px] font-bold uppercase"
+                    className="w-full bg-[#141414] text-[#E4E3E0] py-3 text-[10px] font-bold uppercase tracking-widest hover:bg-[#141414]/90 transition-colors disabled:opacity-50"
                   >
                     {loading ? 'Salvando...' : 'Confirmar Adição'}
                   </button>
@@ -2829,13 +3608,181 @@ function ReportsView({ orders, products }: { orders: Order[], products: Product[
   );
 }
 
-function CashierView({ orders, user }: { orders: Order[], user: any }) {
+function WhatsAppMiniBrowser({ isOpen, isMinimized, onClose, onMinimize }: { isOpen: boolean, isMinimized: boolean, onClose: () => void, onMinimize: () => void }) {
+  const popupRef = useRef<Window | null>(null);
+
+  const openWhatsAppPopup = () => {
+    const width = 450;
+    const height = 700;
+    const left = window.screen.width - width - 50;
+    const top = 100;
+    
+    if (popupRef.current && !popupRef.current.closed) {
+      popupRef.current.focus();
+    } else {
+      popupRef.current = window.open(
+        'https://web.whatsapp.com',
+        'WhatsAppFLUX',
+        `width=${width},height=${height},left=${left},top=${top},menubar=no,toolbar=no,location=no,status=no`
+      );
+    }
+  };
+
+  useEffect(() => {
+    if (isOpen && !isMinimized) {
+      // Auto-open or focus when the panel is expanded
+      const timer = setTimeout(openWhatsAppPopup, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [isOpen, isMinimized]);
+
+  if (!isOpen) return null;
+
+  return (
+    <motion.div
+      drag={!isMinimized}
+      dragMomentum={false}
+      initial={{ y: 100, opacity: 0, x: 0 }}
+      animate={{ 
+        y: isMinimized ? 'calc(100vh - 100px)' : 0, 
+        opacity: 1,
+        height: isMinimized ? '60px' : '400px',
+        width: isMinimized ? '300px' : '350px',
+        scale: 1
+      }}
+      className={cn(
+        "fixed bottom-20 right-4 md:bottom-6 md:right-6 z-[250] bg-white border-2 border-[#141414] shadow-[16px_16px_0px_0px_rgba(20,20,20,1)] flex flex-col overflow-hidden transition-all duration-300",
+        isMinimized ? "rounded-full" : "rounded-none"
+      )}
+    >
+      {/* Browser Header - Drag Handle */}
+      <div 
+        className="bg-[#141414] text-[#E4E3E0] p-3 flex items-center justify-between shrink-0 cursor-move" 
+        onClick={isMinimized ? onMinimize : undefined}
+      >
+        <div className="flex items-center gap-3 pointer-events-none">
+          <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center border border-[#E4E3E0]/20">
+            <MessageSquare size={16} className="text-white" />
+          </div>
+          <div>
+            <h3 className="text-[10px] font-bold uppercase tracking-widest">WhatsApp Web</h3>
+            {!isMinimized && <p className="text-[8px] opacity-50">Assistente de Conexão</p>}
+          </div>
+        </div>
+        <div className="flex items-center gap-2 pointer-events-auto">
+          <button onClick={(e) => { e.stopPropagation(); onMinimize(); }} className="p-1 hover:bg-white/10 rounded">
+            {isMinimized ? <Maximize2 size={14} /> : <Minimize2 size={14} />}
+          </button>
+          <button onClick={(e) => { e.stopPropagation(); onClose(); }} className="p-1 hover:bg-red-500 rounded transition-colors">
+            <X size={14} />
+          </button>
+        </div>
+      </div>
+
+      {!isMinimized && (
+        <div className="flex-1 flex flex-col items-center justify-center p-6 text-center bg-[#E4E3E0]/20">
+          <div className="w-16 h-16 bg-green-500 rounded-full flex items-center justify-center mb-4 shadow-[4px_4px_0px_0px_rgba(20,20,20,1)]">
+            <MessageSquare size={32} className="text-white" />
+          </div>
+          <h4 className="font-serif italic text-xl mb-2">WhatsApp Conectado</h4>
+          <p className="text-[10px] opacity-60 mb-6 leading-relaxed uppercase font-bold tracking-tight">
+            A janela do WhatsApp foi aberta separadamente para garantir sua segurança.
+          </p>
+          
+          <div className="space-y-3 w-full">
+            <button 
+              onClick={openWhatsAppPopup}
+              className="w-full bg-[#141414] text-[#E4E3E0] py-3 text-[10px] font-bold uppercase tracking-widest hover:opacity-90 transition-opacity flex items-center justify-center gap-2 shadow-[4px_4px_0px_0px_rgba(20,20,20,0.2)]"
+            >
+              <ExternalLink size={14} />
+              Trazer para Frente
+            </button>
+            <p className="text-[8px] opacity-40 uppercase tracking-tighter">
+              Dica: Mantenha a janela aberta para não perder notificações de pedidos.
+            </p>
+          </div>
+
+          <div className="mt-6 pt-6 border-t border-[#141414]/10 w-full grid grid-cols-2 gap-2">
+            <div className="text-left">
+              <p className="text-[8px] font-bold opacity-30 uppercase">Status</p>
+              <p className="text-[10px] font-mono text-green-600 font-bold">Ativo</p>
+            </div>
+            <div className="text-right">
+              <p className="text-[8px] font-bold opacity-30 uppercase">Segurança</p>
+              <p className="text-[10px] font-mono">Protegido</p>
+            </div>
+          </div>
+        </div>
+      )}
+    </motion.div>
+  );
+}
+
+function WhatsAppView() {
+  return (
+    <div className="h-full flex flex-col bg-white border border-[#141414] shadow-[12px_12px_0px_0px_rgba(20,20,20,1)] overflow-hidden">
+      <div className="p-6 border-b border-[#141414] flex justify-between items-center bg-[#141414] text-[#E4E3E0]">
+        <div>
+          <h2 className="font-serif italic text-2xl">WhatsApp Web</h2>
+          <p className="text-[10px] uppercase tracking-widest opacity-60">Integração Direta</p>
+        </div>
+        <button 
+          onClick={() => window.open('https://web.whatsapp.com', '_blank')}
+          className="bg-[#E4E3E0] text-[#141414] px-4 py-2 text-[10px] font-bold uppercase tracking-widest hover:opacity-90 transition-opacity flex items-center gap-2"
+        >
+          <ExternalLink size={14} />
+          Abrir em Nova Aba
+        </button>
+      </div>
+      
+      <div className="flex-1 relative bg-[#E4E3E0]/30">
+        <div className="absolute inset-0 flex flex-col items-center justify-center p-8 text-center">
+          <div className="w-20 h-20 bg-green-500 rounded-full flex items-center justify-center mb-6 shadow-[8px_8px_0px_0px_rgba(20,20,20,1)]">
+            <MessageSquare size={40} className="text-white" />
+          </div>
+          <h3 className="font-serif italic text-3xl mb-4">Conecte seu WhatsApp</h3>
+          <p className="max-w-md text-sm opacity-60 mb-8 leading-relaxed">
+            Para garantir sua segurança e privacidade, o WhatsApp Web deve ser aberto em uma janela dedicada. 
+            Clique no botão abaixo para sincronizar suas conversas e gerenciar seus pedidos.
+          </p>
+          <button 
+            onClick={() => window.open('https://web.whatsapp.com', '_blank')}
+            className="bg-[#141414] text-[#E4E3E0] px-8 py-4 text-xs font-bold uppercase tracking-widest hover:opacity-90 transition-opacity shadow-[12px_12px_0px_0px_rgba(20,20,20,0.2)]"
+          >
+            Acessar WhatsApp Web Agora
+          </button>
+          
+          <div className="mt-12 grid grid-cols-1 md:grid-cols-3 gap-6 w-full max-w-4xl">
+            {[
+              { title: 'Pedidos', desc: 'Receba notificações de novos pedidos instantaneamente.' },
+              { title: 'Atendimento', desc: 'Responda seus clientes com agilidade e precisão.' },
+              { title: 'Marketing', desc: 'Envie promoções e novidades para sua base de contatos.' }
+            ].map((item, i) => (
+              <div key={i} className="p-6 border border-[#141414]/10 bg-white/50">
+                <h4 className="font-bold text-[10px] uppercase tracking-widest mb-2">{item.title}</h4>
+                <p className="text-xs opacity-50">{item.desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CashierView({ orders, products, user, showToast }: { orders: Order[], products: Product[], user: any, showToast: any }) {
   const [session, setSession] = useState<CashierSession | null>(null);
+  const [activeSubTab, setActiveSubTab] = useState<'pos' | 'sessions'>('pos');
+  const [cart, setCart] = useState<{ productId: string, quantity: number }[]>([]);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'CARD' | 'PIX'>('CASH');
   const [blindValue, setBlindValue] = useState('');
   const [openingValue, setOpeningValue] = useState('');
   const [isClosing, setIsClosing] = useState(false);
   const [isOpening, setIsOpening] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [finalizing, setFinalizing] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const q = query(
@@ -2859,6 +3806,105 @@ function CashierView({ orders, user }: { orders: Order[], user: any }) {
 
     return () => unsubscribe();
   }, []);
+
+  // Barcode scanning logic
+  useEffect(() => {
+    if (searchTerm && searchTerm.length >= 3) {
+      const product = products.find(p => p.barcode === searchTerm);
+      if (product) {
+        addToCart(product.id);
+        setSearchTerm('');
+        showToast(`Adicionado: ${product.name}`, "success");
+      }
+    }
+  }, [searchTerm, products]);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'F12' && activeSubTab === 'pos') {
+        e.preventDefault();
+        handleFinalizeSale();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activeSubTab, cart, paymentMethod, session]);
+
+  const addToCart = (productId: string) => {
+    setCart(prev => {
+      const existing = prev.find(item => item.productId === productId);
+      if (existing) {
+        return prev.map(item => item.productId === productId ? { ...item, quantity: item.quantity + 1 } : item);
+      }
+      return [...prev, { productId, quantity: 1 }];
+    });
+  };
+
+  const removeFromCart = (productId: string) => {
+    setCart(prev => prev.filter(item => item.productId !== productId));
+  };
+
+  const updateQuantity = (productId: string, delta: number) => {
+    setCart(prev => prev.map(item => {
+      if (item.productId === productId) {
+        return { ...item, quantity: Math.max(1, item.quantity + delta) };
+      }
+      return item;
+    }));
+  };
+
+  const calculateCartTotal = () => {
+    return cart.reduce((acc, item) => {
+      const p = products.find(prod => prod.id === item.productId);
+      return acc + (p?.price || 0) * item.quantity;
+    }, 0);
+  };
+
+  const handleFinalizeSale = async () => {
+    if (!session) return showToast("Abra o caixa primeiro!", "error");
+    if (cart.length === 0) return showToast("Carrinho vazio!", "error");
+
+    setFinalizing(true);
+    try {
+      const total = calculateCartTotal();
+      const orderData = {
+        type: 'TABLE', // POS sales are treated as quick table orders for now
+        status: 'FINISHED',
+        items: cart.map(item => {
+          const p = products.find(prod => prod.id === item.productId)!;
+          return {
+            productId: item.productId,
+            name: p.name,
+            price: p.price,
+            cost: p.cost || 0,
+            quantity: item.quantity
+          };
+        }),
+        payments: [{
+          id: 'pay_' + Date.now(),
+          amount: total,
+          method: paymentMethod,
+          timestamp: serverTimestamp()
+        }],
+        subtotal: total,
+        serviceFee: 0,
+        deliveryFee: 0,
+        total: total,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        cashierSessionId: session.id
+      };
+
+      await addDoc(collection(db, 'orders'), orderData);
+      setCart([]);
+      showToast("Venda finalizada com sucesso!", "success");
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, 'orders');
+    } finally {
+      setFinalizing(false);
+    }
+  };
 
   const openOrdersTotal = orders
     .filter(o => o.status !== 'FINISHED' && o.status !== 'CANCELLED')
@@ -2886,7 +3932,6 @@ function CashierView({ orders, user }: { orders: Order[], user: any }) {
     if (!blindValue || !session) return;
     setIsClosing(true);
     try {
-      // Calculate system balance based on finished orders since session opening
       const finishedOrdersSinceOpening = orders.filter(o => {
         if (o.status !== 'FINISHED') return false;
         const orderTime = o.updatedAt?.seconds || 0;
@@ -2905,7 +3950,7 @@ function CashierView({ orders, user }: { orders: Order[], user: any }) {
         closingBalanceSystem: closingBalanceSystem
       });
       setBlindValue('');
-      alert(`Caixa fechado com sucesso!`);
+      showToast(`Caixa fechado com sucesso!`, "success");
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `cashier_sessions/${session.id}`);
     } finally {
@@ -2952,67 +3997,208 @@ function CashierView({ orders, user }: { orders: Order[], user: any }) {
   }
 
   return (
-    <div className="p-8 space-y-8 overflow-y-auto h-full">
-      <div className="flex justify-between items-end">
-        <div>
-          <h2 className="font-serif italic text-4xl tracking-tight">Gestão de Caixa</h2>
-          <p className="text-sm opacity-50 uppercase tracking-widest font-bold mt-1">Controle financeiro e fechamento cego</p>
-        </div>
+    <div className="flex flex-col h-full">
+      {/* Sub-tabs */}
+      <div className="flex border-b border-[#141414] px-8 bg-white shrink-0">
+        <button 
+          onClick={() => setActiveSubTab('pos')}
+          className={cn(
+            "px-6 py-4 text-[10px] font-bold uppercase tracking-widest border-b-2 transition-all",
+            activeSubTab === 'pos' ? "border-[#141414] opacity-100" : "border-transparent opacity-40 hover:opacity-100"
+          )}
+        >
+          PDV (Venda Rápida)
+        </button>
+        <button 
+          onClick={() => setActiveSubTab('sessions')}
+          className={cn(
+            "px-6 py-4 text-[10px] font-bold uppercase tracking-widest border-b-2 transition-all",
+            activeSubTab === 'sessions' ? "border-[#141414] opacity-100" : "border-transparent opacity-40 hover:opacity-100"
+          )}
+        >
+          Gestão de Sessão
+        </button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-        <div className="md:col-span-2 space-y-6">
-          <div className="bg-white border border-[#141414] p-8 shadow-[12px_12px_0px_0px_rgba(20,20,20,1)]">
-            <div className="flex justify-between items-start mb-8">
-              <div>
-                <span className="px-2 py-1 bg-green-100 text-green-700 text-[10px] font-bold uppercase tracking-widest rounded">Sessão Aberta</span>
-                <h3 className="text-2xl font-bold mt-2">Operador: {session.openedBy}</h3>
-                <p className="text-xs opacity-50">Início: {session.openedAt?.seconds ? new Date(session.openedAt.seconds * 1000).toLocaleString() : ''}</p>
+      <div className="flex-1 overflow-hidden">
+        {activeSubTab === 'pos' ? (
+          <div className="flex h-full overflow-hidden">
+            {/* Left: Product Selection */}
+            <div className="flex-1 p-8 flex flex-col gap-6 overflow-hidden border-r border-[#141414]">
+              <div className="relative">
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 opacity-30" size={18} />
+                <Barcode className="absolute right-4 top-1/2 -translate-y-1/2 opacity-30" size={18} />
+                <input 
+                  ref={searchInputRef}
+                  type="text" 
+                  placeholder="Buscar produto ou bipar código de barras..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full border-2 border-[#141414] pl-12 pr-12 py-4 text-sm font-bold uppercase tracking-widest focus:bg-[#141414]/5 outline-none"
+                />
               </div>
-              <div className="text-right">
-                <p className="text-[10px] uppercase font-bold tracking-widest opacity-50">Saldo Inicial</p>
-                <p className="text-xl font-mono font-bold">R$ {session.openingBalance.toFixed(2)}</p>
+
+              <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+                  {products
+                    .filter(p => p.available && (p.name.toLowerCase().includes(searchTerm.toLowerCase()) || p.barcode === searchTerm))
+                    .map(p => (
+                    <button 
+                      key={p.id}
+                      onClick={() => addToCart(p.id)}
+                      className="bg-white border border-[#141414] p-4 text-left hover:bg-[#141414] hover:text-white transition-all group relative"
+                    >
+                      {p.imageUrl && (
+                        <img src={p.imageUrl} alt="" className="w-full h-20 object-cover mb-2 grayscale group-hover:grayscale-0" />
+                      )}
+                      <p className="text-[10px] font-bold uppercase opacity-50 group-hover:opacity-100">{p.category}</p>
+                      <h4 className="font-serif italic text-lg leading-tight mb-2">{p.name}</h4>
+                      <p className="font-mono font-bold text-sm">R$ {p.price.toFixed(2)}</p>
+                      {p.barcode && <p className="text-[8px] opacity-30 mt-1 font-mono">{p.barcode}</p>}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4 border-t border-[#141414]/10 pt-8">
-              <div>
-                <p className="text-[10px] uppercase font-bold tracking-widest opacity-50">Vendas em Aberto</p>
-                <p className="text-2xl font-mono font-bold text-blue-600">R$ {openOrdersTotal.toFixed(2)}</p>
+            {/* Right: Cart & Finalization */}
+            <div className="w-96 bg-[#141414]/5 p-8 flex flex-col gap-6 shrink-0">
+              <div className="flex items-center justify-between">
+                <h3 className="font-bold uppercase tracking-widest text-xs opacity-50">Carrinho PDV</h3>
+                <div className="flex items-center gap-2">
+                  {cart.length > 0 && (
+                    <button 
+                      onClick={() => setCart([])}
+                      className="text-[8px] font-bold uppercase tracking-widest text-red-500 hover:underline"
+                    >
+                      Limpar
+                    </button>
+                  )}
+                  <span className="bg-[#141414] text-white px-2 py-1 text-[10px] font-mono">{cart.length} itens</span>
+                </div>
               </div>
-              <div>
-                <p className="text-[10px] uppercase font-bold tracking-widest opacity-50">Total Estimado</p>
-                <p className="text-2xl font-mono font-bold">R$ {(session.openingBalance + openOrdersTotal).toFixed(2)}</p>
+
+              <div className="flex-1 overflow-y-auto space-y-3 pr-2 custom-scrollbar">
+                {cart.length === 0 ? (
+                  <div className="h-full flex flex-col items-center justify-center opacity-20 italic text-center">
+                    <ShoppingCart size={48} className="mb-4" />
+                    <p className="text-sm">Carrinho Vazio</p>
+                  </div>
+                ) : (
+                  cart.map(item => {
+                    const p = products.find(prod => prod.id === item.productId)!;
+                    return (
+                      <div key={item.productId} className="bg-white border border-[#141414] p-3 flex flex-col gap-2">
+                        <div className="flex justify-between items-start">
+                          <h5 className="text-xs font-bold leading-tight">{p.name}</h5>
+                          <button onClick={() => removeFromCart(item.productId)} className="text-red-500"><Trash2 size={14} /></button>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <div className="flex items-center gap-2 border border-[#141414] p-1">
+                            <button onClick={() => updateQuantity(item.productId, -1)} className="p-1 hover:bg-gray-100"><Minus size={10} /></button>
+                            <span className="font-mono font-bold text-xs w-6 text-center">{item.quantity}</span>
+                            <button onClick={() => updateQuantity(item.productId, 1)} className="p-1 hover:bg-gray-100"><Plus size={10} /></button>
+                          </div>
+                          <p className="font-mono font-bold text-xs">R$ {(p.price * item.quantity).toFixed(2)}</p>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              <div className="pt-6 border-t border-[#141414] space-y-4">
+                <div className="flex justify-between items-end">
+                  <span className="text-[10px] font-bold uppercase tracking-widest opacity-50">Total da Venda</span>
+                  <span className="text-3xl font-mono font-bold">R$ {calculateCartTotal().toFixed(2)}</span>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest opacity-50 block">Forma de Pagamento</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {(['CASH', 'CARD', 'PIX'] as const).map(m => (
+                      <button 
+                        key={m}
+                        onClick={() => setPaymentMethod(m)}
+                        className={cn(
+                          "py-2 text-[10px] font-bold uppercase tracking-widest border border-[#141414] transition-all",
+                          paymentMethod === m ? "bg-[#141414] text-white" : "hover:bg-[#141414]/5"
+                        )}
+                      >
+                        {m === 'CASH' ? 'Dinheiro' : m === 'CARD' ? 'Cartão' : 'PIX'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <button 
+                  onClick={handleFinalizeSale}
+                  disabled={finalizing || cart.length === 0}
+                  className="w-full bg-green-600 text-white py-4 font-bold uppercase tracking-widest hover:bg-green-700 transition-colors disabled:opacity-50 shadow-[8px_8px_0px_0px_rgba(22,101,52,0.2)]"
+                >
+                  {finalizing ? 'Finalizando...' : 'Finalizar Venda (F12)'}
+                </button>
               </div>
             </div>
           </div>
-        </div>
+        ) : (
+          <div className="p-8 space-y-8 overflow-y-auto h-full">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+              <div className="md:col-span-2 space-y-6">
+                <div className="bg-white border border-[#141414] p-8 shadow-[12px_12px_0px_0px_rgba(20,20,20,1)]">
+                  <div className="flex justify-between items-start mb-8">
+                    <div>
+                      <span className="px-2 py-1 bg-green-100 text-green-700 text-[10px] font-bold uppercase tracking-widest rounded">Sessão Aberta</span>
+                      <h3 className="text-2xl font-bold mt-2">Operador: {session.openedBy}</h3>
+                      <p className="text-xs opacity-50">Início: {session.openedAt?.seconds ? new Date(session.openedAt.seconds * 1000).toLocaleString() : ''}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[10px] uppercase font-bold tracking-widest opacity-50">Saldo Inicial</p>
+                      <p className="text-xl font-mono font-bold">R$ {session.openingBalance.toFixed(2)}</p>
+                    </div>
+                  </div>
 
-        <div className="bg-white border border-[#141414] p-8 shadow-[12px_12px_0px_0px_rgba(20,20,20,1)] flex flex-col">
-          <h3 className="font-bold uppercase tracking-widest text-xs mb-6">Fechamento Cego</h3>
-          <p className="text-xs opacity-60 mb-6">Informe o valor total em dinheiro e cartões presente no caixa físico para conferência.</p>
-          
-          <div className="space-y-4 flex-1">
-            <div>
-              <label className="text-[10px] uppercase font-bold tracking-widest opacity-50 mb-1 block">Valor Físico (R$)</label>
-              <input 
-                type="number"
-                value={blindValue}
-                onChange={(e) => setBlindValue(e.target.value)}
-                placeholder="0,00"
-                className="w-full border-2 border-[#141414] p-4 font-mono text-2xl focus:outline-none focus:bg-[#141414]/5"
-              />
+                  <div className="grid grid-cols-2 gap-4 border-t border-[#141414]/10 pt-8">
+                    <div>
+                      <p className="text-[10px] uppercase font-bold tracking-widest opacity-50">Vendas em Aberto</p>
+                      <p className="text-2xl font-mono font-bold text-blue-600">R$ {openOrdersTotal.toFixed(2)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase font-bold tracking-widest opacity-50">Total Estimado</p>
+                      <p className="text-2xl font-mono font-bold">R$ {(session.openingBalance + openOrdersTotal).toFixed(2)}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-white border border-[#141414] p-8 shadow-[12px_12px_0px_0px_rgba(20,20,20,1)] flex flex-col">
+                <h3 className="font-bold uppercase tracking-widest text-xs mb-6">Fechamento Cego</h3>
+                <p className="text-xs opacity-60 mb-6">Informe o valor total em dinheiro e cartões presente no caixa físico para conferência.</p>
+                
+                <div className="space-y-4 flex-1">
+                  <div>
+                    <label className="text-[10px] uppercase font-bold tracking-widest opacity-50 mb-1 block">Valor Físico (R$)</label>
+                    <input 
+                      type="number"
+                      value={blindValue}
+                      onChange={(e) => setBlindValue(e.target.value)}
+                      placeholder="0,00"
+                      className="w-full border-2 border-[#141414] p-4 font-mono text-2xl focus:outline-none focus:bg-[#141414]/5"
+                    />
+                  </div>
+                </div>
+
+                <button 
+                  onClick={handleCloseCashier}
+                  disabled={isClosing || !blindValue}
+                  className="w-full bg-[#141414] text-white py-4 font-bold uppercase tracking-widest mt-8 hover:opacity-90 transition-opacity disabled:opacity-50"
+                >
+                  {isClosing ? 'Processando...' : 'Fechar Caixa'}
+                </button>
+              </div>
             </div>
           </div>
-
-          <button 
-            onClick={handleCloseCashier}
-            disabled={isClosing || !blindValue}
-            className="w-full bg-[#141414] text-white py-4 font-bold uppercase tracking-widest mt-8 hover:opacity-90 transition-opacity disabled:opacity-50"
-          >
-            {isClosing ? 'Processando...' : 'Fechar Caixa'}
-          </button>
-        </div>
+        )}
       </div>
     </div>
   );
@@ -3034,7 +4220,7 @@ function BillSplitModal({ isOpen, onClose, order, showToast }: { isOpen: boolean
       showToast(`Conta dividida por ${people} pessoas`, "success");
       onClose();
     } catch (error) {
-      showToast("Erro ao dividir conta", "error");
+      handleFirestoreError(error, OperationType.UPDATE, `orders/${order.id}`);
     }
   };
 

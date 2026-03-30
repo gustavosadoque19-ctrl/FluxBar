@@ -17,6 +17,7 @@ export interface Product {
   category: 'Bebidas' | 'Pratos' | 'Sobremesas' | 'Entradas';
   available: boolean;
   imageUrl?: string;
+  barcode?: string;
 }
 
 export interface Table {
@@ -57,6 +58,11 @@ export interface Order {
   deliveryFee: number;
   total: number;
   peopleCount?: number;
+  customerName?: string;
+  customerPhone?: string;
+  deliveryAddress?: string;
+  locationUrl?: string;
+  platform?: string;
   invoiceEmitted?: boolean;
   invoiceUrl?: string;
   createdAt: any;
@@ -79,6 +85,20 @@ export interface RestaurantSettings {
   restaurantName: string;
   address: string;
   whatsappNumber?: string;
+  whatsappTemplates?: {
+    orderReceived?: string;
+    orderPreparing?: string;
+    orderDelivering?: string;
+    orderFinished?: string;
+  };
+  // Fiscal fields
+  CNPJ?: string;
+  IE?: string;
+  UF?: string;
+  CEP?: string;
+  xMun?: string;
+  cMun?: string;
+  cUF?: string;
 }
 
 export interface CashierSession {
