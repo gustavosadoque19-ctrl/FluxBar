@@ -65,6 +65,7 @@
         "category": { "type": "string" },
         "description": { "type": "string" },
         "available": { "type": "boolean" },
+        "stock": { "type": "number" },
         "imageUrl": { "type": "string" },
         "barcode": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" },
@@ -123,7 +124,11 @@
             "discount": { "type": "number" }
           }
         },
-        "whatsappNumber": { "type": "string" }
+        "whatsappNumber": { "type": "string" },
+        "blockSaleNoStock": { "type": "boolean" },
+        "maxDiscount": { "type": "number" },
+        "printMode": { "type": "string", "enum": ["ALWAYS", "NEVER", "MANUAL"] },
+        "erpSyncFrequency": { "type": "string", "enum": ["REALTIME", "HOURLY", "DAILY"] }
       },
       "required": ["restaurantName", "serviceFee"]
     },
@@ -153,9 +158,21 @@
         "email": { "type": "string", "format": "email" },
         "displayName": { "type": "string" },
         "role": { "type": "string", "enum": ["admin", "manager", "waiter", "kitchen", "user"] },
+        "maxDiscount": { "type": "number" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["uid", "email", "role"]
+    },
+    "AllowedEmail": {
+      "title": "AllowedEmail",
+      "description": "An email address pre-approved for registration.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["email", "createdAt"]
     }
   },
   "firestore": {
@@ -183,9 +200,13 @@
       "schema": "RestaurantSettings",
       "description": "Global settings document."
     },
-    "/cashierSessions/{sessionId}": {
+    "/cashier_sessions/{sessionId}": {
       "schema": "CashierSession",
       "description": "Collection of cashier sessions."
+    },
+    "/allowed_emails/{emailId}": {
+      "schema": "AllowedEmail",
+      "description": "Collection of emails allowed to register."
     }
   }
 }

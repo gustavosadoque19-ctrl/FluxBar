@@ -65,8 +65,10 @@ import {
   deleteDoc, 
   doc, 
   getDoc,
+  getDocs,
   where,
-  serverTimestamp 
+  serverTimestamp,
+  increment 
 } from 'firebase/firestore';
 import { 
   BarChart, 
@@ -82,8 +84,7 @@ import {
   PieChart as RePieChart,
   Pie
 } from 'recharts';
-import FiscalView from './components/FiscalView';
-import { Table, Order, Product, Waiter, TableStatus, RestaurantSettings, OrderStatus, CashierSession, FirestoreUser } from './types';
+import { Table, Order, Product, Waiter, TableStatus, RestaurantSettings, OrderStatus, CashierSession, FirestoreUser, AllowedEmail } from './types';
 import { WhatsAppService } from './services/whatsappService';
 
 // --- Error Handling & Utilities ---
@@ -430,6 +431,14 @@ function AuthProvider({ children }: { children: ReactNode }) {
 
   const register = async (email: string, password: string) => {
     try {
+      // Check if email is allowed
+      const q = query(collection(db, 'allowed_emails'), where('email', '==', email.toLowerCase().trim()));
+      const querySnapshot = await getDocs(q);
+      
+      if (querySnapshot.empty && email !== "gustavosadoque19@gmail.com") {
+        throw new Error("Este e-mail não está pré-cadastrado. Entre em contato com um administrador.");
+      }
+      
       await createUserWithEmailAndPassword(auth, email, password);
     } catch (error) {
       console.error("Register Error:", error);
@@ -469,7 +478,7 @@ function useAuth() {
 
 // --- Main App Component ---
 
-type Tab = 'dashboard' | 'tables' | 'delivery' | 'menu' | 'waiters' | 'settings' | 'public_menu' | 'fiscal' | 'kitchen' | 'reports' | 'cashier' | 'whatsapp' | 'users';
+type Tab = 'dashboard' | 'tables' | 'delivery' | 'menu' | 'waiters' | 'settings' | 'public_menu' | 'kitchen' | 'reports' | 'cashier' | 'whatsapp' | 'users';
 
 export default function App() {
   return (
@@ -492,6 +501,7 @@ function AppContent() {
   const [waiters, setWaiters] = useState<Waiter[]>([]);
   const [settings, setSettings] = useState<RestaurantSettings | null>(null);
   const [users, setUsers] = useState<FirestoreUser[]>([]);
+  const [allowedEmails, setAllowedEmails] = useState<AllowedEmail[]>([]);
 
   // Test connection to Firestore
   useEffect(() => {
@@ -508,6 +518,17 @@ function AppContent() {
     };
     testConnection();
   }, []);
+
+  // Fetch allowed emails
+  useEffect(() => {
+    if (!user || !isAdmin) return;
+    const unsub = onSnapshot(collection(db, 'allowed_emails'), (snap) => {
+      setAllowedEmails(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as AllowedEmail)));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'allowed_emails');
+    });
+    return unsub;
+  }, [user, isAdmin]);
 
   // Fetch users for admin
   useEffect(() => {
@@ -667,16 +688,47 @@ function AppContent() {
     }
   };
 
-  const handleUpdateRole = async (uid: string, newRole: FirestoreUser['role']) => {
+  const handleUpdateUser = async (uid: string, data: Partial<FirestoreUser>) => {
     try {
       await updateDoc(doc(db, 'users', uid), {
-        role: newRole,
+        ...data,
         updatedAt: serverTimestamp()
       });
-      showToast(`Nível de acesso atualizado para ${newRole}`, "success");
+      showToast("Usuário atualizado com sucesso!", "success");
     } catch (error) {
-      console.error("Error updating role:", error);
-      showToast("Erro ao atualizar nível de acesso.", "error");
+      handleFirestoreError(error, OperationType.UPDATE, `users/${uid}`);
+    }
+  };
+
+  const handleAddAllowedEmail = async (email: string) => {
+    try {
+      const trimmedEmail = email.toLowerCase().trim();
+      if (!trimmedEmail) return;
+      
+      // Check if already exists
+      const q = query(collection(db, 'allowed_emails'), where('email', '==', trimmedEmail));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        showToast("E-mail já está na lista.", "info");
+        return;
+      }
+
+      await addDoc(collection(db, 'allowed_emails'), {
+        email: trimmedEmail,
+        createdAt: serverTimestamp()
+      });
+      showToast("E-mail pré-cadastrado com sucesso!", "success");
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, 'allowed_emails');
+    }
+  };
+
+  const handleRemoveAllowedEmail = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, 'allowed_emails', id));
+      showToast("E-mail removido da lista.", "success");
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `allowed_emails/${id}`);
     }
   };
 
@@ -706,7 +758,6 @@ function AppContent() {
     { id: 'reports', label: 'Relatórios', icon: BarChart3, adminOnly: true },
     { id: 'cashier', label: 'Caixa', icon: Banknote },
     { id: 'whatsapp', label: 'WhatsApp', icon: MessageSquare },
-    { id: 'fiscal', label: 'Fiscal', icon: FileText, adminOnly: true },
     { id: 'settings', label: 'Ajustes', icon: Settings, adminOnly: true },
   ].filter(item => !item.adminOnly || isAdmin);
 
@@ -886,7 +937,10 @@ function AppContent() {
               {activeTab === 'users' && isAdmin && (
                 <UsersView 
                   users={users} 
-                  onUpdateRole={handleUpdateRole}
+                  onUpdateUser={handleUpdateUser}
+                  allowedEmails={allowedEmails}
+                  onAddAllowedEmail={handleAddAllowedEmail}
+                  onRemoveAllowedEmail={handleRemoveAllowedEmail}
                 />
               )}
               {activeTab === 'settings' && (
@@ -898,7 +952,6 @@ function AppContent() {
                   showToast={showToast}
                 />
               )}
-              {activeTab === 'fiscal' && <FiscalView showToast={showToast} />}
               {activeTab === 'kitchen' && (
                 <KitchenView 
                   orders={orders.filter(o => ['OPEN', 'PREPARING'].includes(o.status))} 
@@ -906,7 +959,7 @@ function AppContent() {
                 />
               )}
               {activeTab === 'reports' && <ReportsView orders={orders} products={products} />}
-              {activeTab === 'cashier' && <CashierView orders={orders} products={products} user={user} showToast={showToast} />}
+              {activeTab === 'cashier' && <CashierView orders={orders} products={products} tables={tables} settings={settings} user={user} showToast={showToast} />}
               {activeTab === 'whatsapp' && <WhatsAppView />}
               {activeTab === 'public_menu' && (
                 <PublicMenuView 
@@ -1405,7 +1458,10 @@ function TablesView({ tables, orders, onAddTable, onEditTable, onNewOrder, onVie
               }}
               className={cn(
                 "aspect-square border border-[#141414] p-3 md:p-4 flex flex-col justify-between cursor-pointer transition-all hover:scale-105 active:scale-95",
-                table.status === 'Ocupada' ? "bg-red-500 text-white" : table.status === 'Fechando Conta' ? "bg-yellow-500" : "bg-white hover:bg-[#141414] hover:text-[#E4E3E0]"
+                table.status === 'Ocupada' ? "bg-red-500 text-white" : 
+                table.status === 'Fechando Conta' ? "bg-yellow-500" : 
+                table.status === 'Aguardando Limpeza' ? "bg-blue-500 text-white" :
+                "bg-white hover:bg-[#141414] hover:text-[#E4E3E0]"
               )}
             >
               <div className="flex justify-between items-start">
@@ -1646,7 +1702,7 @@ function MenuView({ products, onAddProduct, onEditProduct }: { products: Product
                 <img 
                   src={product.imageUrl || `https://picsum.photos/seed/${product.id}/400/300`} 
                   alt={product.name} 
-                  className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-500"
+                  className="w-full h-full object-contain grayscale group-hover:grayscale-0 transition-all duration-500"
                   referrerPolicy="no-referrer"
                 />
               </div>
@@ -1679,38 +1735,121 @@ function MenuView({ products, onAddProduct, onEditProduct }: { products: Product
   );
 }
 
-function UsersView({ users, onUpdateRole }: { users: FirestoreUser[], onUpdateRole: (uid: string, role: FirestoreUser['role']) => void }) {
+function UsersView({ 
+  users, 
+  onUpdateUser, 
+  allowedEmails, 
+  onAddAllowedEmail, 
+  onRemoveAllowedEmail 
+}: { 
+  users: FirestoreUser[], 
+  onUpdateUser: (uid: string, data: Partial<FirestoreUser>) => void,
+  allowedEmails: AllowedEmail[],
+  onAddAllowedEmail: (email: string) => void,
+  onRemoveAllowedEmail: (id: string) => void
+}) {
+  const [newEmail, setNewEmail] = useState('');
+
+  const handleAdd = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newEmail) return;
+    onAddAllowedEmail(newEmail);
+    setNewEmail('');
+  };
+
   return (
-    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
+    <div className="space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-700">
       <div className="flex justify-between items-end border-b border-[#141414] pb-8">
         <div>
           <h2 className="font-serif italic text-5xl tracking-tighter">Usuários</h2>
-          <p className="text-sm opacity-50 uppercase tracking-widest mt-2">Gerenciamento de Níveis de Acesso</p>
+          <p className="text-sm opacity-50 uppercase tracking-widest mt-2">Gerenciamento de Níveis de Acesso e Permissões</p>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4">
-        {users.map((u) => (
-          <div key={u.uid} className="bg-white border-2 border-[#141414] p-6 flex justify-between items-center hover:shadow-[8px_8px_0px_0px_rgba(20,20,20,1)] transition-all">
-            <div>
-              <p className="font-bold text-xl">{u.email}</p>
-              <p className="text-xs opacity-50 uppercase tracking-widest">UID: {u.uid}</p>
-            </div>
-            <div className="flex items-center gap-4">
-              <select 
-                value={u.role}
-                onChange={(e) => onUpdateRole(u.uid, e.target.value as FirestoreUser['role'])}
-                className="bg-transparent border-b-2 border-[#141414] py-2 px-4 font-bold focus:outline-none"
-              >
-                <option value="user">Usuário</option>
-                <option value="waiter">Garçom</option>
-                <option value="kitchen">Cozinha</option>
-                <option value="manager">Gerente</option>
-                <option value="admin">Administrador</option>
-              </select>
-            </div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
+        <div className="space-y-6">
+          <div className="flex items-center gap-3 mb-4">
+            <Users size={20} />
+            <h3 className="font-serif italic text-2xl">Usuários Ativos</h3>
           </div>
-        ))}
+          <div className="grid grid-cols-1 gap-4">
+            {users.map((u) => (
+              <div key={u.uid} className="bg-white border-2 border-[#141414] p-6 flex flex-col justify-between items-start gap-4 hover:shadow-[8px_8px_0px_0px_rgba(20,20,20,1)] transition-all">
+                <div className="flex-1">
+                  <p className="font-bold text-xl">{u.email}</p>
+                  <p className="text-xs opacity-50 uppercase tracking-widest">UID: {u.uid}</p>
+                </div>
+                <div className="flex flex-wrap items-center gap-6 w-full">
+                  <div>
+                    <label className="text-[10px] font-bold uppercase tracking-widest opacity-40 block mb-1">Desconto Máx (%)</label>
+                    <input 
+                      type="number" 
+                      value={u.maxDiscount || 0}
+                      onChange={(e) => onUpdateUser(u.uid, { maxDiscount: parseInt(e.target.value) || 0 })}
+                      className="w-20 border-b-2 border-[#141414] py-1 font-mono text-sm focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold uppercase tracking-widest opacity-40 block mb-1">Nível de Acesso</label>
+                    <select 
+                      value={u.role}
+                      onChange={(e) => onUpdateUser(u.uid, { role: e.target.value as FirestoreUser['role'] })}
+                      className="bg-transparent border-b-2 border-[#141414] py-1 font-bold focus:outline-none text-sm"
+                    >
+                      <option value="user">Usuário</option>
+                      <option value="waiter">Garçom</option>
+                      <option value="kitchen">Cozinha</option>
+                      <option value="manager">Gerente</option>
+                      <option value="admin">Administrador</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="space-y-6">
+          <div className="flex items-center gap-3 mb-4">
+            <UserPlus size={20} />
+            <h3 className="font-serif italic text-2xl">Pré-Cadastro de E-mails</h3>
+          </div>
+          <p className="text-xs opacity-50 mb-6">Apenas e-mails nesta lista poderão criar novas contas no sistema.</p>
+          
+          <form onSubmit={handleAdd} className="flex gap-2">
+            <input 
+              type="email"
+              placeholder="e-mail@exemplo.com"
+              value={newEmail}
+              onChange={(e) => setNewEmail(e.target.value)}
+              className="flex-1 border-2 border-[#141414] p-3 text-sm focus:outline-none"
+            />
+            <button 
+              type="submit"
+              className="bg-[#141414] text-white px-6 py-3 font-bold uppercase tracking-widest text-[10px] hover:opacity-90"
+            >
+              Adicionar
+            </button>
+          </form>
+
+          <div className="bg-white border-2 border-[#141414] divide-y divide-[#141414]">
+            {allowedEmails.length === 0 ? (
+              <p className="p-8 text-center text-sm opacity-30 italic">Nenhum e-mail pré-cadastrado.</p>
+            ) : (
+              allowedEmails.map((ae) => (
+                <div key={ae.id} className="p-4 flex justify-between items-center group hover:bg-[#141414]/5">
+                  <span className="font-mono text-sm">{ae.email}</span>
+                  <button 
+                    onClick={() => onRemoveAllowedEmail(ae.id)}
+                    className="text-red-500 opacity-0 group-hover:opacity-100 transition-opacity p-2 hover:bg-red-50 rounded"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -1948,7 +2087,7 @@ function SettingsView({ user, logout, settings, onOpenPublicMenu, showToast }: {
                   value={localSettings.happyHour?.discount || 0}
                   onChange={(e) => setLocalSettings(prev => ({ 
                     ...prev, 
-                    happyHour: { ...prev.happyHour!, discount: parseInt(e.target.value) } 
+                    happyHour: { ...prev.happyHour!, discount: parseInt(e.target.value) || 0 } 
                   }))}
                   className="w-full border border-[#141414] p-2 font-mono text-sm"
                 />
@@ -1968,7 +2107,7 @@ function SettingsView({ user, logout, settings, onOpenPublicMenu, showToast }: {
                   <input 
                     type="number" 
                     value={localSettings.serviceFee || 0}
-                    onChange={(e) => setLocalSettings(prev => ({ ...prev, serviceFee: parseInt(e.target.value) }))}
+                    onChange={(e) => setLocalSettings(prev => ({ ...prev, serviceFee: parseInt(e.target.value) || 0 }))}
                     className="w-16 border border-[#141414] p-1 text-center font-mono text-sm" 
                   />
                   <span className="text-sm font-bold">%</span>
@@ -1976,6 +2115,75 @@ function SettingsView({ user, logout, settings, onOpenPublicMenu, showToast }: {
               </div>
             </div>
           </section>
+          <section className="space-y-4">
+            <h3 className="text-[10px] font-bold uppercase tracking-widest opacity-50">Operação e Estoque</h3>
+            <div className="bg-white border border-[#141414] p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-bold">Bloquear Venda sem Estoque</p>
+                  <p className="text-[10px] opacity-50">Impede a venda de produtos com saldo zero</p>
+                </div>
+                <button 
+                  onClick={() => setLocalSettings(prev => ({ ...prev, blockSaleNoStock: !prev.blockSaleNoStock }))}
+                  className={cn(
+                    "w-12 h-6 rounded-full border border-[#141414] relative transition-colors",
+                    localSettings.blockSaleNoStock ? "bg-[#141414]" : "bg-white"
+                  )}
+                >
+                  <div className={cn(
+                    "absolute top-1 w-4 h-4 rounded-full transition-all",
+                    localSettings.blockSaleNoStock ? "right-1 bg-white" : "left-1 bg-[#141414]"
+                  )} />
+                </button>
+              </div>
+              <div>
+                <label className="text-[10px] font-bold uppercase tracking-widest opacity-40 block mb-1">Limite de Desconto Global (%)</label>
+                <input 
+                  type="number" 
+                  value={localSettings.maxDiscount || 0}
+                  onChange={(e) => setLocalSettings(prev => ({ ...prev, maxDiscount: parseInt(e.target.value) || 0 }))}
+                  className="w-full border border-[#141414] p-2 font-mono text-sm"
+                />
+              </div>
+            </div>
+          </section>
+
+          <section className="space-y-4">
+            <h3 className="text-[10px] font-bold uppercase tracking-widest opacity-50">Impressão e Periféricos</h3>
+            <div className="bg-white border border-[#141414] p-6 space-y-4">
+              <div>
+                <label className="text-[10px] font-bold uppercase tracking-widest opacity-40 block mb-1">Modo de Impressão</label>
+                <select 
+                  value={localSettings.printMode || 'MANUAL'}
+                  onChange={(e) => setLocalSettings(prev => ({ ...prev, printMode: e.target.value as any }))}
+                  className="w-full border border-[#141414] p-2 text-[10px] font-bold uppercase tracking-widest outline-none"
+                >
+                  <option value="ALWAYS">Sempre Imprimir ao Finalizar</option>
+                  <option value="NEVER">Nunca Imprimir Automaticamente</option>
+                  <option value="MANUAL">Perguntar/Manual</option>
+                </select>
+              </div>
+            </div>
+          </section>
+
+          <section className="space-y-4">
+            <h3 className="text-[10px] font-bold uppercase tracking-widest opacity-50">Sincronização ERP/Nuvem</h3>
+            <div className="bg-white border border-[#141414] p-6 space-y-4">
+              <div>
+                <label className="text-[10px] font-bold uppercase tracking-widest opacity-40 block mb-1">Frequência de Atualização</label>
+                <select 
+                  value={localSettings.erpSyncFrequency || 'REALTIME'}
+                  onChange={(e) => setLocalSettings(prev => ({ ...prev, erpSyncFrequency: e.target.value as any }))}
+                  className="w-full border border-[#141414] p-2 text-[10px] font-bold uppercase tracking-widest outline-none"
+                >
+                  <option value="REALTIME">Tempo Real (Sync Imediato)</option>
+                  <option value="HOURLY">A cada 1 Hora</option>
+                  <option value="DAILY">Diariamente (Fim do Dia)</option>
+                </select>
+              </div>
+            </div>
+          </section>
+
           <section className="space-y-4">
             <h3 className="text-[10px] font-bold uppercase tracking-widest opacity-50">Templates de WhatsApp</h3>
             <div className="bg-white border border-[#141414] p-6 space-y-4">
@@ -2166,8 +2374,8 @@ function TableModal({ isOpen, onClose, table, showConfirm, showToast }: { isOpen
 
   useEffect(() => {
     if (table) {
-      setNumber(table.number);
-      setStatus(table.status);
+      setNumber(table.number || 0);
+      setStatus(table.status || 'FREE');
     } else {
       setNumber(0);
       setStatus('Livre');
@@ -2228,8 +2436,8 @@ function TableModal({ isOpen, onClose, table, showConfirm, showToast }: { isOpen
             <label className="text-[10px] font-bold uppercase tracking-widest opacity-50 block mb-2">Número da Mesa</label>
             <input 
               type="number" 
-              value={number}
-              onChange={(e) => setNumber(parseInt(e.target.value))}
+              value={number || 0}
+              onChange={(e) => setNumber(parseInt(e.target.value) || 0)}
               className="w-full border border-[#141414] p-3 font-mono text-lg focus:ring-1 focus:ring-[#141414] outline-none"
             />
           </div>
@@ -2283,6 +2491,7 @@ function ProductModal({ isOpen, onClose, product, showConfirm, showToast }: { is
   const [name, setName] = useState(product?.name || '');
   const [price, setPrice] = useState(product?.price || 0);
   const [cost, setCost] = useState(product?.cost || 0);
+  const [stock, setStock] = useState(product?.stock || 0);
   const [category, setCategory] = useState(product?.category || 'Pratos');
   const [imageUrl, setImageUrl] = useState(product?.imageUrl || '');
   const [barcode, setBarcode] = useState(product?.barcode || '');
@@ -2291,9 +2500,10 @@ function ProductModal({ isOpen, onClose, product, showConfirm, showToast }: { is
 
   useEffect(() => {
     if (product) {
-      setName(product.name);
-      setPrice(product.price);
+      setName(product.name || '');
+      setPrice(product.price || 0);
       setCost(product.cost || 0);
+      setStock(product.stock || 0);
       setCategory(product.category);
       setImageUrl(product.imageUrl || '');
       setBarcode(product.barcode || '');
@@ -2301,6 +2511,7 @@ function ProductModal({ isOpen, onClose, product, showConfirm, showToast }: { is
       setName('');
       setPrice(0);
       setCost(0);
+      setStock(0);
       setCategory('Pratos');
       setImageUrl('');
       setBarcode('');
@@ -2314,7 +2525,7 @@ function ProductModal({ isOpen, onClose, product, showConfirm, showToast }: { is
     }
     setLoading(true);
     try {
-      const data = { name, price, cost, category, imageUrl, barcode, updatedAt: serverTimestamp() };
+      const data = { name, price, cost, stock, category, imageUrl, barcode, updatedAt: serverTimestamp() };
       if (product) {
         await updateDoc(doc(db, 'products', product.id), data);
         showToast("Produto atualizado!", "success");
@@ -2425,8 +2636,8 @@ function ProductModal({ isOpen, onClose, product, showConfirm, showToast }: { is
               <label className="text-[10px] font-bold uppercase tracking-widest opacity-50 block mb-1">Preço Venda (R$)</label>
               <input 
                 type="number" 
-                value={price}
-                onChange={(e) => setPrice(parseFloat(e.target.value))}
+                value={price || 0}
+                onChange={(e) => setPrice(parseFloat(e.target.value) || 0)}
                 className="w-full border border-[#141414] p-2 font-mono text-sm focus:ring-1 focus:ring-[#141414] outline-none"
               />
             </div>
@@ -2435,8 +2646,18 @@ function ProductModal({ isOpen, onClose, product, showConfirm, showToast }: { is
               <label className="text-[10px] font-bold uppercase tracking-widest opacity-50 block mb-1">Custo (R$)</label>
               <input 
                 type="number" 
-                value={cost}
-                onChange={(e) => setCost(parseFloat(e.target.value))}
+                value={cost || 0}
+                onChange={(e) => setCost(parseFloat(e.target.value) || 0)}
+                className="w-full border border-[#141414] p-2 font-mono text-sm focus:ring-1 focus:ring-[#141414] outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="text-[10px] font-bold uppercase tracking-widest opacity-50 block mb-1">Estoque Atual</label>
+              <input 
+                type="number" 
+                value={stock || 0}
+                onChange={(e) => setStock(parseInt(e.target.value) || 0)}
                 className="w-full border border-[#141414] p-2 font-mono text-sm focus:ring-1 focus:ring-[#141414] outline-none"
               />
             </div>
@@ -2520,9 +2741,9 @@ function WaiterModal({ isOpen, onClose, waiter, showConfirm, showToast }: { isOp
 
   useEffect(() => {
     if (waiter) {
-      setName(waiter.name);
-      setShift(waiter.shift);
-      setCommissionRate(waiter.commissionRate);
+      setName(waiter.name || '');
+      setShift(waiter.shift || 'MANHÃ');
+      setCommissionRate(waiter.commissionRate || 0.05);
     } else {
       setName('');
       setShift('Manhã');
@@ -2609,8 +2830,8 @@ function WaiterModal({ isOpen, onClose, waiter, showConfirm, showToast }: { isOp
             <label className="text-[10px] font-bold uppercase tracking-widest opacity-50 block mb-1">Comissão (%)</label>
             <input 
               type="number" 
-              value={commissionRate * 100}
-              onChange={(e) => setCommissionRate(parseFloat(e.target.value) / 100)}
+              value={(commissionRate || 0) * 100}
+              onChange={(e) => setCommissionRate((parseFloat(e.target.value) || 0) / 100)}
               className="w-full border border-[#141414] p-2 font-mono text-sm focus:ring-1 focus:ring-[#141414] outline-none"
             />
           </div>
@@ -2832,7 +3053,7 @@ function OrderModal({ isOpen, onClose, tables, products, waiters, settings, init
                     <input 
                       type="number"
                       min="1"
-                      value={peopleCount}
+                      value={peopleCount || 1}
                       onChange={(e) => setPeopleCount(parseInt(e.target.value) || 1)}
                       className="w-full border border-[#141414] p-3 font-bold text-xs uppercase tracking-widest"
                     />
@@ -2873,7 +3094,7 @@ function OrderModal({ isOpen, onClose, tables, products, waiters, settings, init
                     <label className="text-[10px] font-bold uppercase tracking-widest opacity-50 block mb-2">Taxa de Entrega (R$)</label>
                     <input 
                       type="number" 
-                      value={deliveryFee}
+                      value={deliveryFee || 0}
                       onChange={(e) => setDeliveryFee(parseFloat(e.target.value) || 0)}
                       className="w-full border border-[#141414] p-3 font-bold text-xs uppercase tracking-widest"
                     />
@@ -3151,7 +3372,7 @@ function PublicMenuView({ products, settings, onBack, showToast, tables }: { pro
             .map(p => (
             <div key={p.id} className="border border-[#141414] p-3 flex gap-3 group">
               <div className="w-16 h-16 bg-[#141414]/5 shrink-0 overflow-hidden">
-                <img src={p.imageUrl || `https://picsum.photos/seed/${p.id}/100/100`} alt="" className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all" />
+                <img src={p.imageUrl || `https://picsum.photos/seed/${p.id}/100/100`} alt="" className="w-full h-full object-contain grayscale group-hover:grayscale-0 transition-all" />
               </div>
               <div className="flex-1 flex flex-col justify-between">
                 <div>
@@ -3247,7 +3468,6 @@ function OrderDetailsModal({ isOpen, onClose, orderId, products, settings, table
   const [loading, setLoading] = useState(false);
   const [addingItems, setAddingItems] = useState(false);
   const [newItems, setNewItems] = useState<{ id: string, quantity: number }[]>([]);
-  const [loadingInvoice, setLoadingInvoice] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
@@ -3290,6 +3510,33 @@ function OrderDetailsModal({ isOpen, onClose, orderId, products, settings, table
             await updateDoc(doc(db, 'tables', order.tableId), { status: 'Livre' });
           }
           showToast("Conta finalizada com sucesso!", "success");
+          onClose();
+        } catch (error) {
+          handleFirestoreError(error, OperationType.UPDATE, `orders/${order.id}`);
+        } finally {
+          setLoading(false);
+        }
+      }
+    );
+  };
+
+  const handleCancelOrder = async () => {
+    if (!order) return;
+    
+    showConfirm(
+      "Cancelar Pedido",
+      "Deseja realmente cancelar este pedido? Esta ação não pode ser desfeita.",
+      async () => {
+        setLoading(true);
+        try {
+          await updateDoc(doc(db, 'orders', order.id), { 
+            status: 'CANCELLED', 
+            updatedAt: serverTimestamp() 
+          });
+          if (order.tableId) {
+            await updateDoc(doc(db, 'tables', order.tableId), { status: 'Livre' });
+          }
+          showToast("Pedido cancelado com sucesso!", "success");
           onClose();
         } catch (error) {
           handleFirestoreError(error, OperationType.UPDATE, `orders/${order.id}`);
@@ -3476,53 +3723,6 @@ function OrderDetailsModal({ isOpen, onClose, orderId, products, settings, table
     if (order.status === 'FINISHED') templateType = 'finished';
     
     WhatsAppService.sendToCustomer(order, settings, templateType);
-  };
-
-  const handleEmitInvoice = async () => {
-    if (!order) return;
-    setLoadingInvoice(true);
-    try {
-      // 1. Buscar configuração fiscal
-      const fiscalSnap = await getDoc(doc(db, 'fiscal_config', 'main'));
-      if (!fiscalSnap.exists()) {
-        showToast("Configure o Módulo Fiscal primeiro!", "error");
-        setActiveTab('fiscal');
-        return;
-      }
-      const fiscalConfig = fiscalSnap.data();
-
-      // 2. Chamar API de emissão
-      const response = await fetch('/api/fiscal/emit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          config: fiscalConfig,
-          order: order,
-          settings: settings
-        })
-      });
-      
-      const result = await response.json();
-      
-      if (result.success) {
-        await updateDoc(doc(db, 'orders', order.id), {
-          invoiceEmitted: true,
-          invoiceUrl: result.invoiceUrl,
-          updatedAt: serverTimestamp()
-        });
-        showToast("Nota Fiscal emitida com sucesso!", "success");
-        if (result.invoiceUrl) {
-          window.open(result.invoiceUrl, '_blank');
-        }
-      } else {
-        showToast(result.message || "Erro ao emitir nota fiscal na SEFAZ", "error");
-      }
-    } catch (error: any) {
-      console.error("Invoice Error:", error);
-      showToast(`Erro: ${error.message || "Conexão falhou"}`, "error");
-    } finally {
-      setLoadingInvoice(false);
-    }
   };
 
   if (!isOpen || !order) return null;
@@ -3804,27 +4004,6 @@ function OrderDetailsModal({ isOpen, onClose, orderId, products, settings, table
                 <Users size={14} />
                 Dividir
               </button>
-              {order.status === 'FINISHED' && !order.invoiceEmitted && (
-                <button 
-                  onClick={handleEmitInvoice}
-                  disabled={loadingInvoice}
-                  className="p-2 border border-[#141414] bg-blue-600 text-white hover:bg-blue-700 transition-colors flex items-center gap-2 text-[10px] font-bold uppercase"
-                  title="Emitir Nota Fiscal"
-                >
-                  <FileText size={14} />
-                  {loadingInvoice ? 'Emitindo...' : 'Emitir Nota'}
-                </button>
-              )}
-              {order.invoiceEmitted && (
-                <button 
-                  onClick={() => window.open(order.invoiceUrl, '_blank')}
-                  className="p-2 border border-[#141414] bg-green-600 text-white hover:bg-green-700 transition-colors flex items-center gap-2 text-[10px] font-bold uppercase"
-                  title="Ver Nota Fiscal"
-                >
-                  <FileText size={14} />
-                  Ver Nota
-                </button>
-              )}
             </div>
               <div>
                 <p className="text-[10px] uppercase font-bold tracking-widest opacity-50">Total a Pagar</p>
@@ -3849,6 +4028,13 @@ function OrderDetailsModal({ isOpen, onClose, orderId, products, settings, table
                 className="bg-green-600 text-white px-6 py-2 text-[10px] font-bold uppercase tracking-widest hover:bg-green-700"
               >
                 {loading ? '...' : 'Finalizar Conta'}
+              </button>
+              <button 
+                onClick={handleCancelOrder}
+                disabled={loading}
+                className="border border-red-500 text-red-500 px-6 py-2 text-[10px] font-bold uppercase tracking-widest hover:bg-red-50 transition-colors"
+              >
+                {loading ? '...' : 'Cancelar Pedido'}
               </button>
             </div>
           </div>
@@ -4128,10 +4314,12 @@ function WhatsAppView() {
   );
 }
 
-function CashierView({ orders, products, user, showToast }: { orders: Order[], products: Product[], user: any, showToast: any }) {
+function CashierView({ orders, products, tables, settings, user, showToast }: { orders: Order[], products: Product[], tables: Table[], settings: RestaurantSettings | null, user: any, showToast: any }) {
   const [session, setSession] = useState<CashierSession | null>(null);
   const [activeSubTab, setActiveSubTab] = useState<'pos' | 'sessions'>('pos');
   const [cart, setCart] = useState<{ productId: string, quantity: number }[]>([]);
+  const [discount, setDiscount] = useState(0);
+  const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'CARD' | 'PIX'>('CASH');
   const [blindValue, setBlindValue] = useState('');
@@ -4190,6 +4378,12 @@ function CashierView({ orders, products, user, showToast }: { orders: Order[], p
   }, [activeSubTab, cart, paymentMethod, session]);
 
   const addToCart = (productId: string) => {
+    const product = products.find(p => p.id === productId);
+    if (settings?.blockSaleNoStock && product && (product.stock || 0) <= 0) {
+      showToast(`Produto ${product.name} sem estoque disponível!`, "error");
+      return;
+    }
+    
     setCart(prev => {
       const existing = prev.find(item => item.productId === productId);
       if (existing) {
@@ -4223,12 +4417,24 @@ function CashierView({ orders, products, user, showToast }: { orders: Order[], p
     if (!session) return showToast("Abra o caixa primeiro!", "error");
     if (cart.length === 0) return showToast("Carrinho vazio!", "error");
 
+    // Enforce discount limit
+    const maxAllowedDiscount = user?.maxDiscount || settings?.maxDiscount || 100;
+    if (discount > maxAllowedDiscount) {
+      return showToast(`Seu limite de desconto é de ${maxAllowedDiscount}%`, "error");
+    }
+
     setFinalizing(true);
     try {
-      const total = calculateCartTotal();
+      const subtotal = calculateCartTotal();
+      const discountAmount = (subtotal * discount) / 100;
+      const total = subtotal - discountAmount;
+      const selectedTable = tables.find(t => t.id === selectedTableId);
+      
       const orderData = {
-        type: 'TABLE', // POS sales are treated as quick table orders for now
+        type: selectedTableId ? 'TABLE' : 'TABLE', 
         status: 'FINISHED',
+        tableId: selectedTableId || null,
+        tableName: selectedTable ? `Mesa ${selectedTable.number}` : 'Venda Rápida',
         items: cart.map(item => {
           const p = products.find(prod => prod.id === item.productId)!;
           return {
@@ -4245,7 +4451,8 @@ function CashierView({ orders, products, user, showToast }: { orders: Order[], p
           method: paymentMethod,
           timestamp: serverTimestamp()
         }],
-        subtotal: total,
+        subtotal: subtotal,
+        discount: discountAmount,
         serviceFee: 0,
         deliveryFee: 0,
         total: total,
@@ -4255,7 +4462,20 @@ function CashierView({ orders, products, user, showToast }: { orders: Order[], p
       };
 
       await addDoc(collection(db, 'orders'), orderData);
+      
+      // Update stock
+      for (const item of cart) {
+        const p = products.find(prod => prod.id === item.productId)!;
+        if (p.stock !== undefined) {
+          await updateDoc(doc(db, 'products', p.id), {
+            stock: increment(-item.quantity)
+          });
+        }
+      }
+
       setCart([]);
+      setDiscount(0);
+      setSelectedTableId(null);
       showToast("Venda finalizada com sucesso!", "success");
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, 'orders');
@@ -4466,9 +4686,38 @@ function CashierView({ orders, products, user, showToast }: { orders: Order[], p
               </div>
 
               <div className="pt-6 border-t border-[#141414] space-y-4">
-                <div className="flex justify-between items-end">
-                  <span className="text-[10px] font-bold uppercase tracking-widest opacity-50">Total da Venda</span>
-                  <span className="text-3xl font-mono font-bold">R$ {calculateCartTotal().toFixed(2)}</span>
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center">
+                    <span className="text-[10px] font-bold uppercase tracking-widest opacity-50">Subtotal</span>
+                    <span className="font-mono font-bold">R$ {calculateCartTotal().toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-[10px] font-bold uppercase tracking-widest opacity-50">Desconto (%)</span>
+                    <input 
+                      type="number" 
+                      value={discount || 0}
+                      onChange={(e) => setDiscount(Math.min(100, Math.max(0, parseInt(e.target.value) || 0)))}
+                      className="w-20 border border-[#141414] p-1 font-mono text-sm text-right focus:outline-none"
+                    />
+                  </div>
+                  <div className="flex justify-between items-end pt-2 border-t border-[#141414]/10">
+                    <span className="text-[10px] font-bold uppercase tracking-widest opacity-50">Total Final</span>
+                    <span className="text-3xl font-mono font-bold">R$ {(calculateCartTotal() * (1 - discount / 100)).toFixed(2)}</span>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest opacity-50 block">Mesa (Opcional)</label>
+                  <select 
+                    value={selectedTableId || ''} 
+                    onChange={(e) => setSelectedTableId(e.target.value || null)}
+                    className="w-full border border-[#141414] p-2 text-[10px] font-bold uppercase tracking-widest focus:outline-none focus:ring-1 focus:ring-[#141414]"
+                  >
+                    <option value="">Venda Direta / Balcão</option>
+                    {tables.sort((a, b) => a.number - b.number).map(t => (
+                      <option key={t.id} value={t.id}>Mesa {t.number}</option>
+                    ))}
+                  </select>
                 </div>
 
                 <div className="space-y-2">

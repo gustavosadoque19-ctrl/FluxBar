@@ -21,8 +21,11 @@ service cloud.firestore {
     // Collection: settings
     // Fields: restaurantName, address, phone, serviceFee, ...
     //
-    // Collection: cashierSessions
+    // Collection: cashier_sessions
     // Fields: openedAt, closedAt, openedBy, closedBy, openingBalance, closingBalancePhysical, closingBalanceSystem, status
+    //
+    // Collection: allowed_emails
+    // Fields: email, createdAt
     //
     // ===============================================================
 
@@ -41,6 +44,13 @@ service cloud.firestore {
           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'));
     }
 
+    function isManager() {
+      return isAuthenticated() &&
+        (isAdmin() || 
+         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'manager'));
+    }
+
     function hasRequiredFields(fields) {
       return request.resource.data.keys().hasAll(fields);
     }
@@ -55,7 +65,8 @@ service cloud.firestore {
       return data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
              data.price is number && data.price >= 0 &&
              data.category is string &&
-             data.available is bool;
+             data.available is bool &&
+             data.stock is number;
     }
 
     function isValidOrder(data) {
@@ -77,7 +88,11 @@ service cloud.firestore {
 
     function isValidSettings(data) {
       return data.restaurantName is string && data.restaurantName.size() > 0 &&
-             data.serviceFee is number && data.serviceFee >= 0;
+             data.serviceFee is number && data.serviceFee >= 0 &&
+             data.blockSaleNoStock is bool &&
+             data.maxDiscount is number &&
+             data.printMode in ['ALWAYS', 'NEVER', 'MANUAL'] &&
+             data.erpSyncFrequency in ['REALTIME', 'HOURLY', 'DAILY'];
     }
 
     function isValidCashierSession(data) {
@@ -90,7 +105,8 @@ service cloud.firestore {
     function isValidUser(data) {
       return data.uid is string &&
              data.email is string &&
-             data.role in ['admin', 'manager', 'waiter', 'kitchen', 'user'];
+             data.role in ['admin', 'manager', 'waiter', 'kitchen', 'user'] &&
+             (!('maxDiscount' in data) || data.maxDiscount is number);
     }
 
     // ===============================================================
@@ -103,15 +119,15 @@ service cloud.firestore {
       allow create: if isAuthenticated() && 
                     ((request.auth.uid == userId && request.resource.data.role == 'user') || isAdmin()) &&
                     isValidUser(request.resource.data);
-      allow update: if isAdmin() && 
-                    (request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'updatedAt']) &&
+      allow update: if isManager() && 
+                    (request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'updatedAt', 'maxDiscount']) &&
                      request.resource.data.role in ['admin', 'manager', 'waiter', 'kitchen', 'user']);
     }
 
     // Products
     match /products/{productId} {
       allow read: if isAuthenticated();
-      allow create, update: if isAdmin() && isValidProduct(request.resource.data);
+      allow create, update: if isManager() && isValidProduct(request.resource.data);
       allow delete: if isAdmin();
     }
 
@@ -140,15 +156,21 @@ service cloud.firestore {
     // Settings
     match /settings/{settingsId} {
       allow read: if isAuthenticated();
-      allow create, update: if isAdmin() && isValidSettings(request.resource.data);
+      allow create, update: if isManager() && isValidSettings(request.resource.data);
     }
 
     // Cashier Sessions
-    match /cashierSessions/{sessionId} {
+    match /cashier_sessions/{sessionId} {
       allow read: if isAuthenticated();
       allow create: if isAuthenticated() && isValidCashierSession(request.resource.data);
       allow update: if isAuthenticated() && isValidCashierSession(request.resource.data);
       allow delete: if isAdmin();
+    }
+
+    // Allowed Emails
+    match /allowed_emails/{emailId} {
+      allow read: if true; // Needed for registration check before login
+      allow write: if isAdmin();
     }
   }
 }

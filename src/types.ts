@@ -16,6 +16,7 @@ export interface Product {
   cost: number;
   category: 'Bebidas' | 'Pratos' | 'Sobremesas' | 'Entradas';
   available: boolean;
+  stock: number;
   imageUrl?: string;
   barcode?: string;
 }
@@ -99,6 +100,11 @@ export interface RestaurantSettings {
   xMun?: string;
   cMun?: string;
   cUF?: string;
+  // New settings
+  blockSaleNoStock: boolean;
+  maxDiscount: number;
+  printMode: 'ALWAYS' | 'NEVER' | 'MANUAL';
+  erpSyncFrequency: 'REALTIME' | 'HOURLY' | 'DAILY';
 }
 
 export interface CashierSession {
@@ -118,6 +124,13 @@ export interface FirestoreUser {
   email: string;
   displayName?: string;
   role: 'admin' | 'manager' | 'waiter' | 'kitchen' | 'user';
+  maxDiscount?: number;
+  createdAt: any;
+}
+
+export interface AllowedEmail {
+  id: string;
+  email: string;
   createdAt: any;
 }
 
