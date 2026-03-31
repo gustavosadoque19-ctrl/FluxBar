@@ -52,7 +52,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { QRCodeCanvas } from 'qrcode.react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import { auth, db, googleProvider, signInWithPopup, onAuthStateChanged, User, signInWithEmailAndPassword, signOut, createUserWithEmailAndPassword } from './firebase';
+import { auth, db, googleProvider, signInWithPopup, onAuthStateChanged, User, signInWithEmailAndPassword, signOut, createUserWithEmailAndPassword, sendPasswordResetEmail } from './firebase';
 import { 
   collection, 
   onSnapshot, 
@@ -195,32 +195,52 @@ function cn(...inputs: ClassValue[]) {
 
 // --- Components ---
 
-function LoginScreen({ onLogin, onRegister }: { 
+function LoginScreen({ onLogin, onRegister, onResetPassword }: { 
   onLogin: (email?: string, password?: string) => Promise<void>,
-  onRegister: (email: string, password: string) => Promise<void> 
+  onRegister: (email: string, password: string) => Promise<void>,
+  onResetPassword: (email: string) => Promise<void>
 }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
   const [isRegistering, setIsRegistering] = useState(false);
+  const [isForgotPassword, setIsForgotPassword] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setSuccess('');
     setLoading(true);
     try {
-      if (isRegistering) {
+      if (isForgotPassword) {
+        await onResetPassword(email);
+        setSuccess('E-mail de recuperação enviado! Verifique sua caixa de entrada.');
+      } else if (isRegistering) {
         await onRegister(email, password);
       } else {
         await onLogin(email, password);
       }
     } catch (err: any) {
+      console.error("Auth Error:", err);
       let message = 'Erro ao processar. Verifique suas credenciais.';
-      if (err.code === 'auth/user-not-found') message = 'Usuário não encontrado.';
-      if (err.code === 'auth/wrong-password') message = 'Senha incorreta.';
-      if (err.code === 'auth/email-already-in-use') message = 'Este e-mail já está em uso.';
-      if (err.code === 'auth/weak-password') message = 'A senha deve ter pelo menos 6 caracteres.';
+      const errorCode = err.code || '';
+      const errorMessage = err.message || '';
+
+      if (errorCode === 'auth/user-not-found' || errorMessage.includes('user-not-found')) 
+        message = 'Usuário não encontrado.';
+      else if (errorCode === 'auth/wrong-password' || errorMessage.includes('wrong-password')) 
+        message = 'Senha incorreta.';
+      else if (errorCode === 'auth/email-already-in-use' || errorMessage.includes('email-already-in-use')) 
+        message = 'Este e-mail já está em uso. Tente fazer login ou recuperar sua senha.';
+      else if (errorCode === 'auth/weak-password' || errorMessage.includes('weak-password')) 
+        message = 'A senha deve ter pelo menos 6 caracteres.';
+      else if (errorCode === 'auth/invalid-email' || errorMessage.includes('invalid-email'))
+        message = 'E-mail inválido.';
+      else if (errorCode === 'auth/too-many-requests')
+        message = 'Muitas tentativas. Tente novamente mais tarde.';
+      
       setError(message);
     } finally {
       setLoading(false);
@@ -236,7 +256,7 @@ function LoginScreen({ onLogin, onRegister }: {
         </div>
 
         <h2 className="text-xl font-bold uppercase tracking-widest mb-8 text-center">
-          {isRegistering ? 'Criar Conta' : 'Acesso ao Sistema'}
+          {isForgotPassword ? 'Recuperar Senha' : (isRegistering ? 'Criar Conta' : 'Acesso ao Sistema')}
         </h2>
 
         <form onSubmit={handleSubmit} className="space-y-6">
@@ -252,22 +272,31 @@ function LoginScreen({ onLogin, onRegister }: {
             />
           </div>
 
-          <div>
-            <label className="block text-[10px] uppercase font-bold tracking-widest mb-2 opacity-60">Senha</label>
-            <input 
-              type="password" 
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full bg-[#F5F5F5] border border-[#141414] p-4 focus:outline-none focus:ring-2 focus:ring-[#141414]/10 transition-all"
-              placeholder="••••••••"
-            />
-          </div>
+          {!isForgotPassword && (
+            <div>
+              <label className="block text-[10px] uppercase font-bold tracking-widest mb-2 opacity-60">Senha</label>
+              <input 
+                type="password" 
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full bg-[#F5F5F5] border border-[#141414] p-4 focus:outline-none focus:ring-2 focus:ring-[#141414]/10 transition-all"
+                placeholder="••••••••"
+              />
+            </div>
+          )}
 
           {error && (
             <div className="p-3 bg-red-50 border border-red-200 text-red-600 text-xs flex items-center gap-2">
               <AlertCircle size={14} />
               {error}
+            </div>
+          )}
+
+          {success && (
+            <div className="p-3 bg-green-50 border border-green-200 text-green-600 text-xs flex items-center gap-2">
+              <RefreshCw size={14} className="animate-spin-slow" />
+              {success}
             </div>
           )}
 
@@ -277,21 +306,51 @@ function LoginScreen({ onLogin, onRegister }: {
             className="w-full bg-[#141414] text-[#E4E3E0] py-4 font-bold uppercase tracking-widest flex items-center justify-center gap-3 hover:opacity-90 transition-opacity disabled:opacity-50"
           >
             {loading ? 'Processando...' : (
-              isRegistering ? <><UserPlus size={18} /> Registrar</> : <><LogIn size={18} /> Entrar</>
+              isForgotPassword ? 'Enviar Link' : (isRegistering ? <><UserPlus size={18} /> Registrar</> : <><LogIn size={18} /> Entrar</>)
             )}
           </button>
         </form>
 
-        <div className="mt-8 text-center">
-          <button 
-            onClick={() => {
-              setIsRegistering(!isRegistering);
-              setError('');
-            }}
-            className="text-[10px] uppercase font-bold tracking-widest opacity-60 hover:opacity-100 transition-opacity underline underline-offset-4"
-          >
-            {isRegistering ? 'Já tenho uma conta' : 'Não tem uma conta? Registrar'}
-          </button>
+        <div className="mt-8 flex flex-col gap-4 text-center">
+          {!isForgotPassword && !isRegistering && (
+            <button 
+              onClick={() => {
+                setIsForgotPassword(true);
+                setError('');
+                setSuccess('');
+              }}
+              className="text-[10px] uppercase font-bold tracking-widest opacity-40 hover:opacity-100 transition-opacity"
+            >
+              Esqueci minha senha
+            </button>
+          )}
+
+          {(isForgotPassword || isRegistering) && (
+            <button 
+              onClick={() => {
+                setIsForgotPassword(false);
+                setIsRegistering(false);
+                setError('');
+                setSuccess('');
+              }}
+              className="text-[10px] uppercase font-bold tracking-widest opacity-60 hover:opacity-100 transition-opacity underline underline-offset-4"
+            >
+              Voltar para o login
+            </button>
+          )}
+
+          {!isForgotPassword && !isRegistering && (
+            <button 
+              onClick={() => {
+                setIsRegistering(true);
+                setError('');
+                setSuccess('');
+              }}
+              className="text-[10px] uppercase font-bold tracking-widest opacity-60 hover:opacity-100 transition-opacity underline underline-offset-4"
+            >
+              Não tem uma conta? Registrar
+            </button>
+          )}
         </div>
 
         <div className="mt-12 flex items-center gap-2 justify-center text-[10px] opacity-40 uppercase font-bold tracking-widest">
@@ -309,6 +368,7 @@ interface AuthContextType {
   loading: boolean;
   login: (email?: string, password?: string) => Promise<void>;
   register: (email: string, password: string) => Promise<void>;
+  resetPassword: (email: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -377,6 +437,15 @@ function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const resetPassword = async (email: string) => {
+    try {
+      await sendPasswordResetEmail(auth, email);
+    } catch (error) {
+      console.error("Reset Password Error:", error);
+      throw error;
+    }
+  };
+
   const logout = async () => {
     try {
       await signOut(auth);
@@ -386,7 +455,7 @@ function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, isAdmin, loading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, isAdmin, loading, login, register, resetPassword, logout }}>
       {children}
     </AuthContext.Provider>
   );
@@ -413,7 +482,7 @@ export default function App() {
 }
 
 function AppContent() {
-  const { user, isAdmin, loading, login, register, logout } = useAuth();
+  const { user, isAdmin, loading, login, register, resetPassword, logout } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
   
   // Real-time states
@@ -576,7 +645,7 @@ function AppContent() {
   }
 
   if (!user) {
-    return <LoginScreen onLogin={login} onRegister={register} />;
+    return <LoginScreen onLogin={login} onRegister={register} onResetPassword={resetPassword} />;
   }
 
   const navItems = [
