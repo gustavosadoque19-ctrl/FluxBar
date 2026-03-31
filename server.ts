@@ -3,8 +3,8 @@ import { createServer as createViteServer } from "vite";
 import path from "path";
 import fs from "fs";
 import dotenv from "dotenv";
-import { FiscalService } from "./src/services/fiscalService.ts";
-import type { FiscalConfig } from "./src/services/fiscalService.ts";
+import { FiscalService } from "./src/services/fiscalService.js";
+import type { FiscalConfig } from "./src/services/fiscalService.js";
 import { DANFe } from "node-sped-pdf";
 
 dotenv.config();

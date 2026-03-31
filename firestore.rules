@@ -60,22 +60,19 @@ service cloud.firestore {
 
     function isValidOrder(data) {
       return data.items is list &&
-             data.status in ['PENDING', 'PREPARING', 'READY', 'DELIVERED', 'CANCELLED', 'FINISHED'] &&
-             data.paymentStatus in ['PENDING', 'PAID', 'FAILED'] &&
+             data.status in ['OPEN', 'PREPARING', 'DELIVERING', 'FINISHED', 'CANCELLED'] &&
              data.subtotal is number &&
              data.total is number &&
              data.type in ['TABLE', 'DELIVERY'];
     }
 
     function isValidTable(data) {
-      return data.number is string &&
-             data.status in ['AVAILABLE', 'OCCUPIED', 'RESERVED'] &&
-             data.capacity is number;
+      return data.number is number &&
+             data.status in ['Livre', 'Ocupada', 'Aguardando Limpeza', 'Fechando Conta'];
     }
 
     function isValidWaiter(data) {
-      return data.name is string && data.name.size() > 0 &&
-             data.active is bool;
+      return data.name is string && data.name.size() > 0;
     }
 
     function isValidSettings(data) {
