@@ -152,7 +152,7 @@
         "uid": { "type": "string" },
         "email": { "type": "string", "format": "email" },
         "displayName": { "type": "string" },
-        "role": { "type": "string", "enum": ["admin", "user"] },
+        "role": { "type": "string", "enum": ["admin", "manager", "waiter", "kitchen", "user"] },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["uid", "email", "role"]

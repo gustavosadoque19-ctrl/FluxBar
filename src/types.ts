@@ -113,6 +113,14 @@ export interface CashierSession {
   status: 'OPEN' | 'CLOSED';
 }
 
+export interface FirestoreUser {
+  uid: string;
+  email: string;
+  displayName?: string;
+  role: 'admin' | 'manager' | 'waiter' | 'kitchen' | 'user';
+  createdAt: any;
+}
+
 export interface Customer {
   id: string;
   name: string;

@@ -36,9 +36,9 @@ service cloud.firestore {
 
     function isAdmin() {
       return isAuthenticated() &&
-        ((exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
-          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin') ||
-          request.auth.token.email == "gustavosadoque19@gmail.com");
+        (request.auth.token.email == "gustavosadoque19@gmail.com" ||
+         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'));
     }
 
     function hasRequiredFields(fields) {
@@ -90,7 +90,7 @@ service cloud.firestore {
     function isValidUser(data) {
       return data.uid is string &&
              data.email is string &&
-             data.role in ['admin', 'user'];
+             data.role in ['admin', 'manager', 'waiter', 'kitchen', 'user'];
     }
 
     // ===============================================================
@@ -103,7 +103,9 @@ service cloud.firestore {
       allow create: if isAuthenticated() && 
                     ((request.auth.uid == userId && request.resource.data.role == 'user') || isAdmin()) &&
                     isValidUser(request.resource.data);
-      allow update: if isAdmin() && isValidUser(request.resource.data);
+      allow update: if isAdmin() && 
+                    (request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'updatedAt']) &&
+                     request.resource.data.role in ['admin', 'manager', 'waiter', 'kitchen', 'user']);
     }
 
     // Products

@@ -83,7 +83,7 @@ import {
   Pie
 } from 'recharts';
 import FiscalView from './components/FiscalView';
-import { Table, Order, Product, Waiter, TableStatus, RestaurantSettings, OrderStatus, CashierSession } from './types';
+import { Table, Order, Product, Waiter, TableStatus, RestaurantSettings, OrderStatus, CashierSession, FirestoreUser } from './types';
 import { WhatsAppService } from './services/whatsappService';
 
 // --- Error Handling & Utilities ---
@@ -469,7 +469,7 @@ function useAuth() {
 
 // --- Main App Component ---
 
-type Tab = 'dashboard' | 'tables' | 'delivery' | 'menu' | 'waiters' | 'settings' | 'public_menu' | 'fiscal' | 'kitchen' | 'reports' | 'cashier' | 'whatsapp';
+type Tab = 'dashboard' | 'tables' | 'delivery' | 'menu' | 'waiters' | 'settings' | 'public_menu' | 'fiscal' | 'kitchen' | 'reports' | 'cashier' | 'whatsapp' | 'users';
 
 export default function App() {
   return (
@@ -491,6 +491,7 @@ function AppContent() {
   const [products, setProducts] = useState<Product[]>([]);
   const [waiters, setWaiters] = useState<Waiter[]>([]);
   const [settings, setSettings] = useState<RestaurantSettings | null>(null);
+  const [users, setUsers] = useState<FirestoreUser[]>([]);
 
   // Test connection to Firestore
   useEffect(() => {
@@ -507,6 +508,23 @@ function AppContent() {
     };
     testConnection();
   }, []);
+
+  // Fetch users for admin
+  useEffect(() => {
+    if (user && isAdmin) {
+      const q = query(collection(db, 'users'), orderBy('email'));
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        const usersData = snapshot.docs.map(doc => ({
+          ...doc.data(),
+          uid: doc.id
+        })) as FirestoreUser[];
+        setUsers(usersData);
+      }, (error) => {
+        handleFirestoreError(error, OperationType.LIST, 'users');
+      });
+      return () => unsubscribe();
+    }
+  }, [user, isAdmin]);
 
   // Modal states
   const [isTableModalOpen, setIsTableModalOpen] = useState(false);
@@ -649,6 +667,19 @@ function AppContent() {
     }
   };
 
+  const handleUpdateRole = async (uid: string, newRole: FirestoreUser['role']) => {
+    try {
+      await updateDoc(doc(db, 'users', uid), {
+        role: newRole,
+        updatedAt: serverTimestamp()
+      });
+      showToast(`Nível de acesso atualizado para ${newRole}`, "success");
+    } catch (error) {
+      console.error("Error updating role:", error);
+      showToast("Erro ao atualizar nível de acesso.", "error");
+    }
+  };
+
   if (loading) {
     return (
       <div className="h-screen flex items-center justify-center bg-[#E4E3E0]">
@@ -671,6 +702,7 @@ function AppContent() {
     { id: 'delivery', label: 'Delivery', icon: Truck },
     { id: 'menu', label: 'Cardápio', icon: ClipboardList, adminOnly: true },
     { id: 'waiters', label: 'Equipe', icon: Users, adminOnly: true },
+    { id: 'users', label: 'Usuários', icon: UserPlus, adminOnly: true },
     { id: 'reports', label: 'Relatórios', icon: BarChart3, adminOnly: true },
     { id: 'cashier', label: 'Caixa', icon: Banknote },
     { id: 'whatsapp', label: 'WhatsApp', icon: MessageSquare },
@@ -849,6 +881,12 @@ function AppContent() {
                     setSelectedWaiter(waiter);
                     setIsWaiterModalOpen(true);
                   }}
+                />
+              )}
+              {activeTab === 'users' && isAdmin && (
+                <UsersView 
+                  users={users} 
+                  onUpdateRole={handleUpdateRole}
                 />
               )}
               {activeTab === 'settings' && (
@@ -1636,6 +1674,43 @@ function MenuView({ products, onAddProduct, onEditProduct }: { products: Product
             </div>
           ))
         )}
+      </div>
+    </div>
+  );
+}
+
+function UsersView({ users, onUpdateRole }: { users: FirestoreUser[], onUpdateRole: (uid: string, role: FirestoreUser['role']) => void }) {
+  return (
+    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
+      <div className="flex justify-between items-end border-b border-[#141414] pb-8">
+        <div>
+          <h2 className="font-serif italic text-5xl tracking-tighter">Usuários</h2>
+          <p className="text-sm opacity-50 uppercase tracking-widest mt-2">Gerenciamento de Níveis de Acesso</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4">
+        {users.map((u) => (
+          <div key={u.uid} className="bg-white border-2 border-[#141414] p-6 flex justify-between items-center hover:shadow-[8px_8px_0px_0px_rgba(20,20,20,1)] transition-all">
+            <div>
+              <p className="font-bold text-xl">{u.email}</p>
+              <p className="text-xs opacity-50 uppercase tracking-widest">UID: {u.uid}</p>
+            </div>
+            <div className="flex items-center gap-4">
+              <select 
+                value={u.role}
+                onChange={(e) => onUpdateRole(u.uid, e.target.value as FirestoreUser['role'])}
+                className="bg-transparent border-b-2 border-[#141414] py-2 px-4 font-bold focus:outline-none"
+              >
+                <option value="user">Usuário</option>
+                <option value="waiter">Garçom</option>
+                <option value="kitchen">Cozinha</option>
+                <option value="manager">Gerente</option>
+                <option value="admin">Administrador</option>
+              </select>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
