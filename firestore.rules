@@ -87,6 +87,12 @@ service cloud.firestore {
              data.status in ['OPEN', 'CLOSED'];
     }
 
+    function isValidUser(data) {
+      return data.uid is string &&
+             data.email is string &&
+             data.role in ['admin', 'user'];
+    }
+
     // ===============================================================
     // Rules
     // ===============================================================
@@ -94,8 +100,10 @@ service cloud.firestore {
     // Users Collection (for roles)
     match /users/{userId} {
       allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
-      allow create: if isAuthenticated() && (request.auth.uid == userId && request.resource.data.role == 'user') || isAdmin();
-      allow update: if isAdmin();
+      allow create: if isAuthenticated() && 
+                    ((request.auth.uid == userId && request.resource.data.role == 'user') || isAdmin()) &&
+                    isValidUser(request.resource.data);
+      allow update: if isAdmin() && isValidUser(request.resource.data);
     }
 
     // Products

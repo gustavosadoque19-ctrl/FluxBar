@@ -143,9 +143,26 @@
         "status": { "type": "string", "enum": ["OPEN", "CLOSED"] }
       },
       "required": ["openedAt", "openedBy", "openingBalance", "status"]
+    },
+    "User": {
+      "title": "User",
+      "description": "A system user with role-based access.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "user"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "role"]
     }
   },
   "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Collection of system users and their roles."
+    },
     "/orders/{orderId}": {
       "schema": "Order",
       "description": "Collection of all orders."

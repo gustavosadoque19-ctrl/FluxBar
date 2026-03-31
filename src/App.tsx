@@ -492,6 +492,22 @@ function AppContent() {
   const [waiters, setWaiters] = useState<Waiter[]>([]);
   const [settings, setSettings] = useState<RestaurantSettings | null>(null);
 
+  // Test connection to Firestore
+  useEffect(() => {
+    const testConnection = async () => {
+      try {
+        const { getDocFromServer } = await import('firebase/firestore');
+        await getDocFromServer(doc(db, 'settings', 'general'));
+        console.log("Conectado ao Firestore com sucesso!");
+      } catch (error) {
+        if (error instanceof Error && error.message.includes('the client is offline')) {
+          console.error("Erro de configuração do Firebase: o cliente está offline. Verifique o firebase-applet-config.json.");
+        }
+      }
+    };
+    testConnection();
+  }, []);
+
   // Modal states
   const [isTableModalOpen, setIsTableModalOpen] = useState(false);
   const [selectedTable, setSelectedTable] = useState<Table | null>(null);
