@@ -45,13 +45,14 @@ import {
   X,
   RefreshCw,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  UserPlus
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { QRCodeCanvas } from 'qrcode.react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import { auth, db, googleProvider, signInWithPopup, onAuthStateChanged, User } from './firebase';
+import { auth, db, googleProvider, signInWithPopup, onAuthStateChanged, User, signInWithEmailAndPassword, signOut, createUserWithEmailAndPassword } from './firebase';
 import { 
   collection, 
   onSnapshot, 
@@ -192,13 +193,122 @@ function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-// --- Context & Auth ---
+// --- Components ---
+
+function LoginScreen({ onLogin, onRegister }: { 
+  onLogin: (email?: string, password?: string) => Promise<void>,
+  onRegister: (email: string, password: string) => Promise<void> 
+}) {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [isRegistering, setIsRegistering] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+    try {
+      if (isRegistering) {
+        await onRegister(email, password);
+      } else {
+        await onLogin(email, password);
+      }
+    } catch (err: any) {
+      let message = 'Erro ao processar. Verifique suas credenciais.';
+      if (err.code === 'auth/user-not-found') message = 'Usuário não encontrado.';
+      if (err.code === 'auth/wrong-password') message = 'Senha incorreta.';
+      if (err.code === 'auth/email-already-in-use') message = 'Este e-mail já está em uso.';
+      if (err.code === 'auth/weak-password') message = 'A senha deve ter pelo menos 6 caracteres.';
+      setError(message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="h-screen flex items-center justify-center bg-[#E4E3E0] p-6 font-sans">
+      <div className="max-w-md w-full bg-white border border-[#141414] p-10 shadow-[20px_20px_0px_0px_rgba(20,20,20,1)]">
+        <div className="text-center mb-10">
+          <h1 className="font-serif italic text-5xl tracking-tight mb-2">FLUXBar</h1>
+          <p className="text-xs uppercase tracking-[0.2em] opacity-40 font-bold">Professional Edition</p>
+        </div>
+
+        <h2 className="text-xl font-bold uppercase tracking-widest mb-8 text-center">
+          {isRegistering ? 'Criar Conta' : 'Acesso ao Sistema'}
+        </h2>
+
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <div>
+            <label className="block text-[10px] uppercase font-bold tracking-widest mb-2 opacity-60">E-mail</label>
+            <input 
+              type="email" 
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full bg-[#F5F5F5] border border-[#141414] p-4 focus:outline-none focus:ring-2 focus:ring-[#141414]/10 transition-all"
+              placeholder="seu@email.com"
+            />
+          </div>
+
+          <div>
+            <label className="block text-[10px] uppercase font-bold tracking-widest mb-2 opacity-60">Senha</label>
+            <input 
+              type="password" 
+              required
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full bg-[#F5F5F5] border border-[#141414] p-4 focus:outline-none focus:ring-2 focus:ring-[#141414]/10 transition-all"
+              placeholder="••••••••"
+            />
+          </div>
+
+          {error && (
+            <div className="p-3 bg-red-50 border border-red-200 text-red-600 text-xs flex items-center gap-2">
+              <AlertCircle size={14} />
+              {error}
+            </div>
+          )}
+
+          <button 
+            type="submit"
+            disabled={loading}
+            className="w-full bg-[#141414] text-[#E4E3E0] py-4 font-bold uppercase tracking-widest flex items-center justify-center gap-3 hover:opacity-90 transition-opacity disabled:opacity-50"
+          >
+            {loading ? 'Processando...' : (
+              isRegistering ? <><UserPlus size={18} /> Registrar</> : <><LogIn size={18} /> Entrar</>
+            )}
+          </button>
+        </form>
+
+        <div className="mt-8 text-center">
+          <button 
+            onClick={() => {
+              setIsRegistering(!isRegistering);
+              setError('');
+            }}
+            className="text-[10px] uppercase font-bold tracking-widest opacity-60 hover:opacity-100 transition-opacity underline underline-offset-4"
+          >
+            {isRegistering ? 'Já tenho uma conta' : 'Não tem uma conta? Registrar'}
+          </button>
+        </div>
+
+        <div className="mt-12 flex items-center gap-2 justify-center text-[10px] opacity-40 uppercase font-bold tracking-widest">
+          <AlertCircle size={12} />
+          Acesso restrito a funcionários
+        </div>
+      </div>
+    </div>
+  );
+}
 
 interface AuthContextType {
   user: User | null;
   isAdmin: boolean;
   loading: boolean;
-  login: () => Promise<void>;
+  login: (email?: string, password?: string) => Promise<void>;
+  register: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -245,24 +355,38 @@ function AuthProvider({ children }: { children: ReactNode }) {
     return unsubscribe;
   }, []);
 
-  const login = async () => {
+  const login = async (email?: string, password?: string) => {
     try {
-      await signInWithPopup(auth, googleProvider);
+      if (email && password) {
+        await signInWithEmailAndPassword(auth, email, password);
+      } else {
+        await signInWithPopup(auth, googleProvider);
+      }
     } catch (error) {
       console.error("Login Error:", error);
+      throw error;
+    }
+  };
+
+  const register = async (email: string, password: string) => {
+    try {
+      await createUserWithEmailAndPassword(auth, email, password);
+    } catch (error) {
+      console.error("Register Error:", error);
+      throw error;
     }
   };
 
   const logout = async () => {
     try {
-      await auth.signOut();
+      await signOut(auth);
     } catch (error) {
       console.error("Logout Error:", error);
     }
   };
 
   return (
-    <AuthContext.Provider value={{ user, isAdmin, loading, login, logout }}>
+    <AuthContext.Provider value={{ user, isAdmin, loading, login, register, logout }}>
       {children}
     </AuthContext.Provider>
   );
@@ -289,7 +413,7 @@ export default function App() {
 }
 
 function AppContent() {
-  const { user, isAdmin, loading, login, logout } = useAuth();
+  const { user, isAdmin, loading, login, register, logout } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
   
   // Real-time states
@@ -452,27 +576,7 @@ function AppContent() {
   }
 
   if (!user) {
-    return (
-      <div className="h-screen flex items-center justify-center bg-[#E4E3E0] p-6">
-        <div className="max-w-md w-full bg-white border border-[#141414] p-12 text-center shadow-[20px_20px_0px_0px_rgba(20,20,20,1)]">
-          <h1 className="font-serif italic text-5xl tracking-tight mb-4">FLUXBar</h1>
-          <p className="text-sm opacity-60 mb-12">Sistema profissional para gestão de bares e restaurantes.</p>
-          
-          <button 
-            onClick={login}
-            className="w-full bg-[#141414] text-[#E4E3E0] py-4 font-bold uppercase tracking-widest flex items-center justify-center gap-3 hover:opacity-90 transition-opacity"
-          >
-            <LogIn size={20} />
-            Entrar com Google
-          </button>
-          
-          <div className="mt-8 flex items-center gap-2 justify-center text-[10px] opacity-40 uppercase font-bold tracking-widest">
-            <AlertCircle size={12} />
-            Acesso restrito a funcionários
-          </div>
-        </div>
-      </div>
-    );
+    return <LoginScreen onLogin={login} onRegister={register} />;
   }
 
   const navItems = [
