@@ -497,6 +497,7 @@ function AppContent() {
   // Real-time states
   const [tables, setTables] = useState<Table[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [deletedOrders, setDeletedOrders] = useState<Order[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [waiters, setWaiters] = useState<Waiter[]>([]);
   const [settings, setSettings] = useState<RestaurantSettings | null>(null);
@@ -611,6 +612,39 @@ function AppContent() {
       handleFirestoreError(error, OperationType.GET, 'settings/general');
     });
 
+    return () => unsubSettings();
+  }, [user]);
+
+  const [userWantsNotifications, setUserWantsNotifications] = useState(() => {
+    return localStorage.getItem('userWantsNotifications') !== 'false';
+  });
+  const isFirstLoad = useRef(true);
+
+  const toggleNotifications = async () => {
+    if (!('Notification' in window)) {
+      showToast("Este navegador não suporta notificações.", "error");
+      return;
+    }
+    
+    if (Notification.permission !== 'granted') {
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') {
+        showToast("Permissão de notificação negada.", "error");
+        setUserWantsNotifications(false);
+        localStorage.setItem('userWantsNotifications', 'false');
+        return;
+      }
+    }
+    
+    const newValue = !userWantsNotifications;
+    setUserWantsNotifications(newValue);
+    localStorage.setItem('userWantsNotifications', String(newValue));
+    showToast(newValue ? "Notificações ativadas!" : "Notificações desativadas.", "info");
+  };
+
+  useEffect(() => {
+    if (!db || !auth.currentUser) return;
+
     // Listen to Tables
     const unsubTables = onSnapshot(collection(db, 'tables'), (snap) => {
       setTables(snap.docs.map(d => ({ id: d.id, ...d.data() } as Table)));
@@ -619,11 +653,38 @@ function AppContent() {
     });
 
     // Listen to Orders (Recent)
-    const qOrders = query(collection(db, 'orders'), orderBy('createdAt', 'desc'), limit(20));
+    const qOrders = query(collection(db, 'orders'), orderBy('createdAt', 'desc'), limit(100));
     const unsubOrders = onSnapshot(qOrders, (snap) => {
       setOrders(snap.docs.map(d => ({ id: d.id, ...d.data() } as Order)));
+
+      if (!isFirstLoad.current && userWantsNotifications && Notification.permission === 'granted') {
+        snap.docChanges().forEach((change) => {
+          if (change.type === 'added') {
+            const order = change.doc.data() as Order;
+            new Notification('Novo Pedido!', {
+              body: `Pedido #${change.doc.id.slice(-4)} recebido. Total: R$ ${order.total.toFixed(2)}`,
+              icon: '/favicon.ico'
+            });
+          } else if (change.type === 'modified') {
+            const order = change.doc.data() as Order;
+            new Notification('Pedido Atualizado!', {
+              body: `Pedido #${change.doc.id.slice(-4)} status: ${order.status}`,
+              icon: '/favicon.ico'
+            });
+          }
+        });
+      }
+      isFirstLoad.current = false;
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, 'orders');
+    });
+
+    // Listen to Deleted Orders
+    const qDeleted = query(collection(db, 'orders'), where('deleted', '==', true), orderBy('deletedAt', 'desc'), limit(50));
+    const unsubDeleted = onSnapshot(qDeleted, (snap) => {
+      setDeletedOrders(snap.docs.map(d => ({ id: d.id, ...d.data() } as Order)));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'orders_deleted');
     });
 
     // Listen to Products
@@ -639,6 +700,18 @@ function AppContent() {
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, 'waiters');
     });
+
+    return () => {
+      unsubTables();
+      unsubOrders();
+      unsubDeleted();
+      unsubProducts();
+      unsubWaiters();
+    };
+  }, [db, auth.currentUser]);
+
+  useEffect(() => {
+    if (!user) return;
 
     // Handle Stripe Redirects
     const urlParams = new URLSearchParams(window.location.search);
@@ -665,14 +738,6 @@ function AppContent() {
       showToast("Pagamento cancelado.", "error");
       window.history.replaceState({}, document.title, window.location.pathname);
     }
-
-    return () => {
-      unsubSettings();
-      unsubTables();
-      unsubOrders();
-      unsubProducts();
-      unsubWaiters();
-    };
   }, [user]);
 
   const handleUpdateStatus = async (orderId: string, newStatus: OrderStatus) => {
@@ -732,6 +797,32 @@ function AppContent() {
     }
   };
 
+  const handleDeleteOrder = async (orderId: string) => {
+    try {
+      await updateDoc(doc(db, 'orders', orderId), {
+        deleted: true,
+        deletedAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+      showToast("Pedido excluído com sucesso!", "success");
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `orders/${orderId}`);
+    }
+  };
+
+  const handleRestoreOrder = async (orderId: string) => {
+    try {
+      await updateDoc(doc(db, 'orders', orderId), {
+        deleted: false,
+        deletedAt: null,
+        updatedAt: serverTimestamp()
+      });
+      showToast("Pedido restaurado com sucesso!", "success");
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `orders/${orderId}`);
+    }
+  };
+
   if (loading) {
     return (
       <div className="h-screen flex items-center justify-center bg-[#E4E3E0]">
@@ -756,6 +847,7 @@ function AppContent() {
     { id: 'waiters', label: 'Equipe', icon: Users, adminOnly: true },
     { id: 'users', label: 'Usuários', icon: UserPlus, adminOnly: true },
     { id: 'reports', label: 'Relatórios', icon: BarChart3, adminOnly: true },
+    { id: 'trash', label: 'Lixeira', icon: Trash2, adminOnly: true },
     { id: 'cashier', label: 'Caixa', icon: Banknote },
     { id: 'whatsapp', label: 'WhatsApp', icon: MessageSquare },
     { id: 'settings', label: 'Ajustes', icon: Settings, adminOnly: true },
@@ -858,7 +950,7 @@ function AppContent() {
             >
               {activeTab === 'dashboard' && (
                 <DashboardView 
-                  orders={orders} 
+                  orders={orders.filter(o => !o.deleted)} 
                   tables={tables} 
                   waiters={waiters} 
                   onNewOrder={() => {
@@ -874,7 +966,7 @@ function AppContent() {
               {activeTab === 'tables' && (
                 <TablesView 
                   tables={tables} 
-                  orders={orders}
+                  orders={orders.filter(o => !o.deleted)}
                   onAddTable={() => {
                     setSelectedTable(null);
                     setIsTableModalOpen(true);
@@ -899,7 +991,7 @@ function AppContent() {
               )}
               {activeTab === 'delivery' && (
                 <DeliveryView 
-                  orders={orders.filter(o => o.type === 'DELIVERY')} 
+                  orders={orders.filter(o => o.type === 'DELIVERY' && !o.deleted)} 
                   settings={settings}
                   showToast={showToast} 
                   onNewOrder={() => {
@@ -950,16 +1042,25 @@ function AppContent() {
                   settings={settings} 
                   onOpenPublicMenu={() => setActiveTab('public_menu')}
                   showToast={showToast}
+                  userWantsNotifications={userWantsNotifications}
+                  onToggleNotifications={toggleNotifications}
                 />
               )}
               {activeTab === 'kitchen' && (
                 <KitchenView 
-                  orders={orders.filter(o => ['OPEN', 'PREPARING'].includes(o.status))} 
+                  orders={orders.filter(o => ['OPEN', 'PREPARING'].includes(o.status) && !o.deleted)} 
                   onUpdateStatus={handleUpdateStatus}
                 />
               )}
-              {activeTab === 'reports' && <ReportsView orders={orders} products={products} />}
-              {activeTab === 'cashier' && <CashierView orders={orders} products={products} tables={tables} settings={settings} user={user} showToast={showToast} />}
+              {activeTab === 'reports' && <ReportsView orders={orders.filter(o => !o.deleted)} products={products} />}
+              {activeTab === 'trash' && isAdmin && (
+                <TrashView 
+                  deletedOrders={deletedOrders} 
+                  onRestore={handleRestoreOrder}
+                  showConfirm={showConfirm}
+                />
+              )}
+              {activeTab === 'cashier' && <CashierView orders={orders.filter(o => !o.deleted)} products={products} tables={tables} settings={settings} user={user} showToast={showToast} />}
               {activeTab === 'whatsapp' && <WhatsAppView />}
               {activeTab === 'public_menu' && (
                 <PublicMenuView 
@@ -1052,6 +1153,8 @@ function AppContent() {
           showToast={showToast}
           setActiveTab={setActiveTab}
           onOpenSplit={() => setIsBillSplitOpen(true)}
+          onDelete={handleDeleteOrder}
+          isAdmin={isAdmin}
         />
         {isBillSplitOpen && selectedOrderId && (
           <BillSplitModal 
@@ -1906,7 +2009,79 @@ function WaitersView({ waiters, onAddWaiter, onEditWaiter }: { waiters: Waiter[]
   );
 }
 
-function SettingsView({ user, logout, settings, onOpenPublicMenu, showToast }: { user: User, logout: () => void, settings: RestaurantSettings | null, onOpenPublicMenu: () => void, showToast: (message: string, type?: 'success' | 'error' | 'info') => void }) {
+function TrashView({ deletedOrders, onRestore, showConfirm }: { deletedOrders: Order[], onRestore: (id: string) => void, showConfirm: (t: string, m: string, c: () => void) => void }) {
+  return (
+    <div className="space-y-8">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="font-serif italic text-3xl md:text-4xl">Lixeira de Pedidos</h2>
+          <p className="text-xs md:text-sm opacity-50 mt-1">Recupere pedidos excluídos acidentalmente</p>
+        </div>
+        <div className="text-[10px] font-bold uppercase tracking-widest opacity-50">
+          {deletedOrders.length} Pedidos Excluídos
+        </div>
+      </div>
+
+      <div className="bg-white border border-[#141414] overflow-hidden">
+        <div className="hidden sm:grid grid-cols-6 p-4 border-b border-[#141414] bg-[#141414] text-[#E4E3E0] text-[10px] uppercase font-bold tracking-widest">
+          <div>ID</div>
+          <div className="col-span-2">Detalhes</div>
+          <div>Excluído em</div>
+          <div>Total</div>
+          <div className="text-right">Ação</div>
+        </div>
+        {deletedOrders.length === 0 ? (
+          <div className="p-20 text-center">
+            <Trash2 size={48} className="mx-auto mb-4 opacity-10" />
+            <p className="font-serif italic text-xl opacity-30">A lixeira está vazia.</p>
+          </div>
+        ) : (
+          deletedOrders.map((order) => (
+            <div key={order.id} className="flex flex-col sm:grid sm:grid-cols-6 p-4 border-b border-[#141414] items-start sm:items-center hover:bg-[#141414]/5 transition-colors gap-3 sm:gap-0">
+              <div className="font-mono text-[10px] opacity-50">#{order.id.slice(-6).toUpperCase()}</div>
+              <div className="sm:col-span-2">
+                <p className="text-sm font-bold">
+                  {order.type === 'TABLE' ? `Mesa ${order.tableId}` : `Delivery: ${order.customerName || 'N/A'}`}
+                </p>
+                <p className="text-[10px] opacity-50">{order.items.length} itens • {order.status}</p>
+              </div>
+              <div className="text-[10px] opacity-50">
+                {order.deletedAt ? new Date(order.deletedAt.seconds * 1000).toLocaleString() : 'N/A'}
+              </div>
+              <div className="font-mono text-sm">R$ {order.total.toFixed(2)}</div>
+              <div className="w-full sm:text-right">
+                <button 
+                  onClick={() => showConfirm("Restaurar Pedido", "Deseja realmente restaurar este pedido?", () => onRestore(order.id))}
+                  className="bg-[#141414] text-[#E4E3E0] px-4 py-2 text-[10px] font-bold uppercase tracking-widest hover:opacity-90 transition-opacity"
+                >
+                  Restaurar
+                </button>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SettingsView({ 
+  user, 
+  logout, 
+  settings, 
+  onOpenPublicMenu, 
+  showToast,
+  userWantsNotifications,
+  onToggleNotifications
+}: { 
+  user: User, 
+  logout: () => void, 
+  settings: RestaurantSettings | null, 
+  onOpenPublicMenu: () => void, 
+  showToast: (message: string, type?: 'success' | 'error' | 'info') => void,
+  userWantsNotifications: boolean,
+  onToggleNotifications: () => void
+}) {
   const [localSettings, setLocalSettings] = useState<Partial<RestaurantSettings>>(settings || {});
   const [saving, setSaving] = useState(false);
 
@@ -1962,6 +2137,27 @@ function SettingsView({ user, logout, settings, onOpenPublicMenu, showToast }: {
               </div>
               <button onClick={logout} className="p-2 border border-red-500 text-red-500 hover:bg-red-500 hover:text-white transition-colors">
                 <LogOut size={18} />
+              </button>
+            </div>
+          </section>
+
+          <section className="space-y-4">
+            <h3 className="text-[10px] font-bold uppercase tracking-widest opacity-50">Notificações</h3>
+            <div className="bg-white border border-[#141414] p-4 md:p-6 flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className={`p-3 border border-[#141414] ${userWantsNotifications && Notification.permission === 'granted' ? 'bg-[#141414] text-white' : 'bg-white text-[#141414]'}`}>
+                  <Bell size={20} />
+                </div>
+                <div>
+                  <p className="text-sm font-bold uppercase tracking-tight">Notificações no Navegador</p>
+                  <p className="text-[10px] opacity-50">{userWantsNotifications && Notification.permission === 'granted' ? 'Ativadas' : 'Desativadas'}</p>
+                </div>
+              </div>
+              <button 
+                onClick={onToggleNotifications}
+                className={`px-4 py-2 text-[10px] font-bold uppercase tracking-widest border border-[#141414] transition-colors ${userWantsNotifications && Notification.permission === 'granted' ? 'bg-[#141414] text-white' : 'hover:bg-[#141414]/5'}`}
+              >
+                {userWantsNotifications && Notification.permission === 'granted' ? 'Desativar' : 'Ativar'}
               </button>
             </div>
           </section>
@@ -3463,7 +3659,7 @@ function PublicMenuView({ products, settings, onBack, showToast, tables }: { pro
   );
 }
 
-function OrderDetailsModal({ isOpen, onClose, orderId, products, settings, tables, showConfirm, showToast, setActiveTab, onOpenSplit }: { isOpen: boolean, onClose: () => void, orderId: string | null, products: Product[], settings: RestaurantSettings | null, tables: Table[], showConfirm: (title: string, message: string, onConfirm: () => void, onCancel?: () => void) => void, showToast: (message: string, type?: 'success' | 'error' | 'info') => void, setActiveTab: (tab: Tab) => void, onOpenSplit: () => void }) {
+function OrderDetailsModal({ isOpen, onClose, orderId, products, settings, tables, showConfirm, showToast, setActiveTab, onOpenSplit, onDelete, isAdmin }: { isOpen: boolean, onClose: () => void, orderId: string | null, products: Product[], settings: RestaurantSettings | null, tables: Table[], showConfirm: (title: string, message: string, onConfirm: () => void, onCancel?: () => void) => void, showToast: (message: string, type?: 'success' | 'error' | 'info') => void, setActiveTab: (tab: Tab) => void, onOpenSplit: () => void, onDelete: (id: string) => void, isAdmin: boolean }) {
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(false);
   const [addingItems, setAddingItems] = useState(false);
@@ -3543,6 +3739,18 @@ function OrderDetailsModal({ isOpen, onClose, orderId, products, settings, table
         } finally {
           setLoading(false);
         }
+      }
+    );
+  };
+
+  const handleDeleteOrder = async () => {
+    if (!order) return;
+    showConfirm(
+      "Excluir Pedido",
+      "Deseja realmente enviar este pedido para a lixeira?",
+      () => {
+        onDelete(order.id);
+        onClose();
       }
     );
   };
@@ -4036,6 +4244,16 @@ function OrderDetailsModal({ isOpen, onClose, orderId, products, settings, table
               >
                 {loading ? '...' : 'Cancelar Pedido'}
               </button>
+              {isAdmin && (
+                <button 
+                  onClick={handleDeleteOrder}
+                  disabled={loading}
+                  className="bg-red-600 text-white px-6 py-2 text-[10px] font-bold uppercase tracking-widest hover:bg-red-700 transition-colors flex items-center gap-2"
+                >
+                  <Trash2 size={12} />
+                  {loading ? '...' : 'Excluir'}
+                </button>
+              )}
             </div>
           </div>
         </div>

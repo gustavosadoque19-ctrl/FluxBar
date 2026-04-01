@@ -68,6 +68,8 @@ export interface Order {
   invoiceUrl?: string;
   createdAt: any;
   updatedAt: any;
+  deleted?: boolean;
+  deletedAt?: any;
 }
 
 export interface RestaurantSettings {

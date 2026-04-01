@@ -38,6 +38,8 @@
         "waiterName": { "type": "string" },
         "peopleCount": { "type": "number" },
         "cashierSessionId": { "type": "string" },
+        "deleted": { "type": "boolean" },
+        "deletedAt": { "type": "string", "format": "date-time" },
         "payments": {
           "type": "array",
           "items": {

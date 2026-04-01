@@ -74,7 +74,9 @@ service cloud.firestore {
              data.status in ['OPEN', 'PREPARING', 'DELIVERING', 'FINISHED', 'CANCELLED'] &&
              data.subtotal is number &&
              data.total is number &&
-             data.type in ['TABLE', 'DELIVERY'];
+             data.type in ['TABLE', 'DELIVERY'] &&
+             (!('deleted' in data) || data.deleted is bool) &&
+             (!('deletedAt' in data) || data.deletedAt is timestamp);
     }
 
     function isValidTable(data) {
@@ -135,7 +137,8 @@ service cloud.firestore {
     match /orders/{orderId} {
       allow read: if isAuthenticated();
       allow create: if isAuthenticated() && isValidOrder(request.resource.data);
-      allow update: if isAuthenticated() && isValidOrder(request.resource.data);
+      allow update: if isAuthenticated() && isValidOrder(request.resource.data) && 
+                    (isManager() || !('deleted' in request.resource.data) || request.resource.data.deleted == resource.data.deleted);
       allow delete: if isAdmin();
     }
 
