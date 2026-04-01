@@ -40,6 +40,8 @@
         "cashierSessionId": { "type": "string" },
         "deleted": { "type": "boolean" },
         "deletedAt": { "type": "string", "format": "date-time" },
+        "isPickup": { "type": "boolean" },
+        "locationUrl": { "type": "string" },
         "payments": {
           "type": "array",
           "items": {
@@ -69,6 +71,7 @@
         "available": { "type": "boolean" },
         "stock": { "type": "number" },
         "imageUrl": { "type": "string" },
+        "imageFit": { "type": "string", "enum": ["cover", "contain"] },
         "barcode": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
@@ -130,7 +133,20 @@
         "blockSaleNoStock": { "type": "boolean" },
         "maxDiscount": { "type": "number" },
         "printMode": { "type": "string", "enum": ["ALWAYS", "NEVER", "MANUAL"] },
-        "erpSyncFrequency": { "type": "string", "enum": ["REALTIME", "HOURLY", "DAILY"] }
+        "erpSyncFrequency": { "type": "string", "enum": ["REALTIME", "HOURLY", "DAILY"] },
+        "whatsappBotEnabled": { "type": "boolean" },
+        "whatsappBotWelcomeMessage": { "type": "string" },
+        "whatsappBotMenuUrl": { "type": "string" },
+        "theme": {
+          "type": "object",
+          "properties": {
+            "primaryColor": { "type": "string" },
+            "secondaryColor": { "type": "string" },
+            "backgroundColor": { "type": "string" },
+            "textColor": { "type": "string" },
+            "logoUrl": { "type": "string" }
+          }
+        }
       },
       "required": ["restaurantName", "serviceFee"]
     },

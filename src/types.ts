@@ -1,5 +1,5 @@
-export type OrderType = 'TABLE' | 'DELIVERY';
-export type OrderStatus = 'OPEN' | 'PREPARING' | 'DELIVERING' | 'FINISHED' | 'CANCELLED';
+export type OrderType = 'TABLE' | 'DELIVERY' | 'PICKUP';
+export type OrderStatus = 'PENDING' | 'PREPARING' | 'READY' | 'DELIVERING' | 'FINISHED' | 'CANCELLED';
 export type TableStatus = 'Livre' | 'Ocupada' | 'Aguardando Limpeza' | 'Fechando Conta';
 
 export interface Waiter {
@@ -18,6 +18,7 @@ export interface Product {
   available: boolean;
   stock: number;
   imageUrl?: string;
+  imageFit?: 'cover' | 'contain';
   barcode?: string;
 }
 
@@ -70,6 +71,7 @@ export interface Order {
   updatedAt: any;
   deleted?: boolean;
   deletedAt?: any;
+  isPickup?: boolean;
 }
 
 export interface RestaurantSettings {
@@ -107,6 +109,18 @@ export interface RestaurantSettings {
   maxDiscount: number;
   printMode: 'ALWAYS' | 'NEVER' | 'MANUAL';
   erpSyncFrequency: 'REALTIME' | 'HOURLY' | 'DAILY';
+  // WhatsApp Bot Settings
+  whatsappBotEnabled: boolean;
+  whatsappBotWelcomeMessage: string;
+  whatsappBotMenuUrl: string;
+  // Theme Customization
+  theme?: {
+    primaryColor: string;
+    secondaryColor: string;
+    backgroundColor: string;
+    textColor: string;
+    logoUrl?: string;
+  };
 }
 
 export interface CashierSession {

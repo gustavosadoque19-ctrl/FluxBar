@@ -71,12 +71,14 @@ service cloud.firestore {
 
     function isValidOrder(data) {
       return data.items is list &&
-             data.status in ['OPEN', 'PREPARING', 'DELIVERING', 'FINISHED', 'CANCELLED'] &&
+             data.status in ['PENDING', 'PREPARING', 'DELIVERING', 'FINISHED', 'CANCELLED', 'READY'] &&
              data.subtotal is number &&
              data.total is number &&
-             data.type in ['TABLE', 'DELIVERY'] &&
+             data.type in ['TABLE', 'DELIVERY', 'PICKUP'] &&
              (!('deleted' in data) || data.deleted is bool) &&
-             (!('deletedAt' in data) || data.deletedAt is timestamp);
+             (!('deletedAt' in data) || data.deletedAt is timestamp) &&
+             (!('isPickup' in data) || data.isPickup is bool) &&
+             (!('locationUrl' in data) || data.locationUrl is string);
     }
 
     function isValidTable(data) {
@@ -89,12 +91,43 @@ service cloud.firestore {
     }
 
     function isValidSettings(data) {
-      return data.restaurantName is string && data.restaurantName.size() > 0 &&
-             data.serviceFee is number && data.serviceFee >= 0 &&
-             data.blockSaleNoStock is bool &&
-             data.maxDiscount is number &&
-             data.printMode in ['ALWAYS', 'NEVER', 'MANUAL'] &&
-             data.erpSyncFrequency in ['REALTIME', 'HOURLY', 'DAILY'];
+      return (!('restaurantName' in data) || (data.restaurantName is string && data.restaurantName.size() > 0 && data.restaurantName.size() < 100)) &&
+             (!('address' in data) || (data.address is string && data.address.size() < 500)) &&
+             (!('whatsappNumber' in data) || (data.whatsappNumber is string && data.whatsappNumber.size() < 20)) &&
+             (!('CNPJ' in data) || (data.CNPJ is string && data.CNPJ.size() < 20)) &&
+             (!('IE' in data) || (data.IE is string && data.IE.size() < 20)) &&
+             (!('serviceFee' in data) || (data.serviceFee is number && data.serviceFee >= 0)) &&
+             (!('blockSaleNoStock' in data) || data.blockSaleNoStock is bool) &&
+             (!('maxDiscount' in data) || (data.maxDiscount is number && data.maxDiscount >= 0)) &&
+             (!('printMode' in data) || data.printMode in ['ALWAYS', 'NEVER', 'MANUAL']) &&
+             (!('erpSyncFrequency' in data) || data.erpSyncFrequency in ['REALTIME', 'HOURLY', 'DAILY']) &&
+             (!('operatingHours' in data) || (
+               data.operatingHours is map &&
+               (!('open' in data.operatingHours) || data.operatingHours.open is string) &&
+               (!('close' in data.operatingHours) || data.operatingHours.close is string)
+             )) &&
+             (!('happyHour' in data) || (
+               data.happyHour is map &&
+               (!('enabled' in data.happyHour) || data.happyHour.enabled is bool) &&
+               (!('start' in data.happyHour) || data.happyHour.start is string) &&
+               (!('end' in data.happyHour) || data.happyHour.end is string) &&
+               (!('discount' in data.happyHour) || data.happyHour.discount is number)
+             )) &&
+             (!('whatsappBotEnabled' in data) || data.whatsappBotEnabled is bool) &&
+             (!('whatsappBotWelcomeMessage' in data) || (data.whatsappBotWelcomeMessage is string && data.whatsappBotWelcomeMessage.size() < 1000)) &&
+             (!('whatsappBotMenuUrl' in data) || (data.whatsappBotMenuUrl is string && data.whatsappBotMenuUrl.size() < 500)) &&
+             (!('whatsappTemplates' in data) || (
+               data.whatsappTemplates is map &&
+               (!('orderReceived' in data.whatsappTemplates) || data.whatsappTemplates.orderReceived is string)
+             )) &&
+             (!('theme' in data) || (
+               data.theme is map &&
+               (!('primaryColor' in data.theme) || data.theme.primaryColor is string) &&
+               (!('secondaryColor' in data.theme) || data.theme.secondaryColor is string) &&
+               (!('backgroundColor' in data.theme) || data.theme.backgroundColor is string) &&
+               (!('textColor' in data.theme) || data.theme.textColor is string) &&
+               (!('logoUrl' in data.theme) || data.theme.logoUrl is string)
+             ));
     }
 
     function isValidCashierSession(data) {
@@ -128,7 +161,7 @@ service cloud.firestore {
 
     // Products
     match /products/{productId} {
-      allow read: if isAuthenticated();
+      allow read: if true;
       allow create, update: if isManager() && isValidProduct(request.resource.data);
       allow delete: if isAdmin();
     }
@@ -136,7 +169,7 @@ service cloud.firestore {
     // Orders
     match /orders/{orderId} {
       allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && isValidOrder(request.resource.data);
+      allow create: if (isAuthenticated() || true) && isValidOrder(request.resource.data);
       allow update: if isAuthenticated() && isValidOrder(request.resource.data) && 
                     (isManager() || !('deleted' in request.resource.data) || request.resource.data.deleted == resource.data.deleted);
       allow delete: if isAdmin();
@@ -144,7 +177,7 @@ service cloud.firestore {
 
     // Tables
     match /tables/{tableId} {
-      allow read: if isAuthenticated();
+      allow read: if true;
       allow create, update: if isAuthenticated() && isValidTable(request.resource.data);
       allow delete: if isAdmin();
     }
@@ -158,7 +191,7 @@ service cloud.firestore {
 
     // Settings
     match /settings/{settingsId} {
-      allow read: if isAuthenticated();
+      allow read: if true;
       allow create, update: if isManager() && isValidSettings(request.resource.data);
     }
 
