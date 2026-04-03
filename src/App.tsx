@@ -874,6 +874,26 @@ function AppContent() {
     }
   };
 
+  useEffect(() => {
+    // iFood Polling
+    if (user && settings?.ifoodClientId && settings?.ifoodClientSecret) {
+      const pollIfood = async () => {
+        try {
+          await fetch('/api/ifood/orders/poll');
+        } catch (error) {
+          console.error("iFood polling failed:", error);
+        }
+      };
+
+      // Initial poll
+      pollIfood();
+
+      // Poll every 2 minutes
+      const interval = setInterval(pollIfood, 120000);
+      return () => clearInterval(interval);
+    }
+  }, [user, settings?.ifoodClientId, settings?.ifoodClientSecret]);
+
   if (loading) {
     return (
       <div className="h-screen flex items-center justify-center bg-[#E4E3E0]">
@@ -2608,6 +2628,99 @@ function SettingsView({
           {activeTab === 'integration' && (
             <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-300">
               <section className="space-y-4">
+                <h3 className="text-[10px] font-bold uppercase tracking-widest opacity-50">Integração iFood</h3>
+                <div className="bg-background border border-primary p-6 space-y-6">
+                  <div className="flex items-start gap-4">
+                    <div className="p-3 bg-[#EA1D2C] rounded-xl text-white shrink-0">
+                      <Share2 size={24} />
+                    </div>
+                    <div className="flex-1 space-y-2">
+                      <h4 className="font-bold text-lg">Conectar com iFood</h4>
+                      <p className="text-xs opacity-60 leading-relaxed">
+                        Receba pedidos do iFood diretamente no seu painel. 
+                        Você precisará do Client ID e Client Secret fornecidos pelo portal do parceiro iFood.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold uppercase tracking-widest opacity-40 block">Client ID</label>
+                      <input 
+                        type="text" 
+                        placeholder="Insira seu Client ID"
+                        value={localSettings.ifoodClientId || ''}
+                        onChange={(e) => setLocalSettings(prev => ({ ...prev, ifoodClientId: e.target.value }))}
+                        className="w-full border border-primary p-2 text-sm focus:ring-1 focus:ring-primary outline-none bg-background"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold uppercase tracking-widest opacity-40 block">Client Secret</label>
+                      <input 
+                        type="password" 
+                        placeholder="••••••••••••"
+                        value={localSettings.ifoodClientSecret || ''}
+                        onChange={(e) => setLocalSettings(prev => ({ ...prev, ifoodClientSecret: e.target.value }))}
+                        className="w-full border border-primary p-2 text-sm focus:ring-1 focus:ring-primary outline-none bg-background"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row gap-3 pt-2">
+                    <button 
+                      onClick={async () => {
+                        if (!localSettings.ifoodClientId || !localSettings.ifoodClientSecret) {
+                          showToast("Preencha o Client ID e Client Secret", "error");
+                          return;
+                        }
+                        try {
+                          const response = await fetch('/api/ifood/auth', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              clientId: localSettings.ifoodClientId,
+                              clientSecret: localSettings.ifoodClientSecret
+                            })
+                          });
+                          const data = await response.json();
+                          if (data.success) {
+                            showToast("iFood conectado com sucesso!", "success");
+                          } else {
+                            showToast(data.error || "Erro ao conectar com iFood", "error");
+                          }
+                        } catch (error) {
+                          showToast("Erro na comunicação com o servidor", "error");
+                        }
+                      }}
+                      className="bg-[#EA1D2C] text-white px-6 py-3 text-[10px] font-bold uppercase tracking-widest hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
+                    >
+                      <Share2 size={14} />
+                      Conectar iFood
+                    </button>
+                    <button 
+                      onClick={async () => {
+                        try {
+                          const response = await fetch('/api/ifood/orders/poll');
+                          const data = await response.json();
+                          if (data.success) {
+                            showToast(`${data.eventsProcessed} novos eventos processados`, "info");
+                          } else {
+                            showToast(data.error || "Erro ao sincronizar pedidos", "error");
+                          }
+                        } catch (error) {
+                          showToast("Erro na comunicação com o servidor", "error");
+                        }
+                      }}
+                      className="border border-primary px-6 py-3 text-[10px] font-bold uppercase tracking-widest hover:bg-primary/5 flex items-center justify-center gap-2"
+                    >
+                      <RefreshCw size={14} />
+                      Sincronizar Pedidos
+                    </button>
+                  </div>
+                </div>
+              </section>
+
+              <section className="space-y-4">
                 <h3 className="text-[10px] font-bold uppercase tracking-widest opacity-50">Cardápio Digital</h3>
                 <div className="bg-white border border-[#141414] p-6 space-y-6">
                   <div className="flex flex-col sm:flex-row gap-6 items-center">
@@ -2640,6 +2753,84 @@ function SettingsView({
                           <Share2 size={14} />
                           Copiar Link
                         </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section className="space-y-4">
+                <h3 className="text-[10px] font-bold uppercase tracking-widest opacity-50">Configuração Fiscal (NFC-e)</h3>
+                <div className="bg-background border border-primary p-6 space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-4">
+                      <div>
+                        <label className="text-[10px] font-bold uppercase tracking-widest opacity-40 block mb-1">Ambiente</label>
+                        <select 
+                          value={localSettings.fiscalEnvironment || 'homologacao'}
+                          onChange={(e) => setLocalSettings(prev => ({ ...prev, fiscalEnvironment: e.target.value as any }))}
+                          className="w-full border border-primary p-2 text-xs font-bold uppercase bg-background"
+                        >
+                          <option value="homologacao">Homologação (Testes)</option>
+                          <option value="producao">Produção (Real)</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-bold uppercase tracking-widest opacity-40 block mb-1">CSC ID</label>
+                        <input 
+                          type="text" 
+                          value={localSettings.cscId || ''}
+                          onChange={(e) => setLocalSettings(prev => ({ ...prev, cscId: e.target.value }))}
+                          placeholder="000001"
+                          className="w-full border border-primary p-2 text-sm bg-background"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-bold uppercase tracking-widest opacity-40 block mb-1">CSC Token</label>
+                        <input 
+                          type="text" 
+                          value={localSettings.cscToken || ''}
+                          onChange={(e) => setLocalSettings(prev => ({ ...prev, cscToken: e.target.value }))}
+                          placeholder="AAAA-BBBB-CCCC-DDDD"
+                          className="w-full border border-primary p-2 text-sm bg-background"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-4">
+                      <div>
+                        <label className="text-[10px] font-bold uppercase tracking-widest opacity-40 block mb-1">Certificado Digital (A1 - .pfx)</label>
+                        <div className="flex flex-col gap-2">
+                          <input 
+                            type="file" 
+                            accept=".pfx,.p12"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) {
+                                const reader = new FileReader();
+                                reader.onloadend = () => {
+                                  const base64 = (reader.result as string).split(',')[1];
+                                  setLocalSettings(prev => ({ ...prev, certificateBase64: base64 }));
+                                  showToast("Certificado carregado!", "info");
+                                };
+                                reader.readAsDataURL(file);
+                              }
+                            }}
+                            className="text-[10px]"
+                          />
+                          {localSettings.certificateBase64 && (
+                            <p className="text-[8px] text-green-500 font-bold uppercase">Certificado carregado na memória</p>
+                          )}
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-bold uppercase tracking-widest opacity-40 block mb-1">Senha do Certificado</label>
+                        <input 
+                          type="password" 
+                          value={localSettings.certificatePassword || ''}
+                          onChange={(e) => setLocalSettings(prev => ({ ...prev, certificatePassword: e.target.value }))}
+                          className="w-full border border-primary p-2 text-sm bg-background"
+                        />
                       </div>
                     </div>
                   </div>
@@ -2966,6 +3157,11 @@ function ProductModal({ isOpen, onClose, product, showConfirm, showToast }: { is
   const [imageUrl, setImageUrl] = useState(product?.imageUrl || '');
   const [imageFit, setImageFit] = useState<'cover' | 'contain'>(product?.imageFit || 'cover');
   const [barcode, setBarcode] = useState(product?.barcode || '');
+  const [ncm, setNcm] = useState(product?.ncm || '');
+  const [cest, setCest] = useState(product?.cest || '');
+  const [cfop, setCfop] = useState(product?.cfop || '');
+  const [icmsOrigin, setIcmsOrigin] = useState(product?.icmsOrigin || '0');
+  const [icmsSituation, setIcmsSituation] = useState(product?.icmsSituation || '102');
   const [loading, setLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -2979,6 +3175,11 @@ function ProductModal({ isOpen, onClose, product, showConfirm, showToast }: { is
       setImageUrl(product.imageUrl || '');
       setImageFit(product.imageFit || 'cover');
       setBarcode(product.barcode || '');
+      setNcm(product.ncm || '');
+      setCest(product.cest || '');
+      setCfop(product.cfop || '');
+      setIcmsOrigin(product.icmsOrigin || '0');
+      setIcmsSituation(product.icmsSituation || '102');
     } else {
       setName('');
       setPrice(0);
@@ -2988,6 +3189,11 @@ function ProductModal({ isOpen, onClose, product, showConfirm, showToast }: { is
       setImageUrl('');
       setImageFit('cover');
       setBarcode('');
+      setNcm('');
+      setCest('');
+      setCfop('');
+      setIcmsOrigin('0');
+      setIcmsSituation('102');
     }
   }, [product]);
 
@@ -2998,7 +3204,11 @@ function ProductModal({ isOpen, onClose, product, showConfirm, showToast }: { is
     }
     setLoading(true);
     try {
-      const data = { name, price, cost, stock, category, imageUrl, imageFit, barcode, updatedAt: serverTimestamp() };
+      const data = { 
+        name, price, cost, stock, category, imageUrl, imageFit, barcode, 
+        ncm, cest, cfop, icmsOrigin, icmsSituation,
+        updatedAt: serverTimestamp() 
+      };
       if (product) {
         await updateDoc(doc(db, 'products', product.id), data);
         showToast("Produto atualizado!", "success");
@@ -3183,6 +3393,71 @@ function ProductModal({ isOpen, onClose, product, showConfirm, showToast }: { is
             </div>
           </div>
 
+          <div className="border-t border-[#141414]/10 pt-4 mt-4">
+            <h4 className="text-[10px] font-bold uppercase tracking-widest opacity-30 mb-4">Dados Fiscais (NFC-e)</h4>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-[10px] font-bold uppercase tracking-widest opacity-50 block mb-1">NCM</label>
+                <input 
+                  type="text" 
+                  value={ncm}
+                  maxLength={8}
+                  onChange={(e) => setNcm(e.target.value.replace(/\D/g, ''))}
+                  className="w-full border border-[#141414] p-2 text-[10px] font-mono focus:ring-1 focus:ring-[#141414] outline-none"
+                  placeholder="8 dígitos"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold uppercase tracking-widest opacity-50 block mb-1">CEST</label>
+                <input 
+                  type="text" 
+                  value={cest}
+                  maxLength={7}
+                  onChange={(e) => setCest(e.target.value.replace(/\D/g, ''))}
+                  className="w-full border border-[#141414] p-2 text-[10px] font-mono focus:ring-1 focus:ring-[#141414] outline-none"
+                  placeholder="7 dígitos"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold uppercase tracking-widest opacity-50 block mb-1">CFOP</label>
+                <input 
+                  type="text" 
+                  value={cfop}
+                  maxLength={4}
+                  onChange={(e) => setCfop(e.target.value.replace(/\D/g, ''))}
+                  className="w-full border border-[#141414] p-2 text-[10px] font-mono focus:ring-1 focus:ring-[#141414] outline-none"
+                  placeholder="Ex: 5102"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold uppercase tracking-widest opacity-50 block mb-1">Origem ICMS</label>
+                <select 
+                  value={icmsOrigin}
+                  onChange={(e) => setIcmsOrigin(e.target.value)}
+                  className="w-full border border-[#141414] p-2 text-[10px] font-bold focus:ring-1 focus:ring-[#141414] outline-none"
+                >
+                  <option value="0">0 - Nacional</option>
+                  <option value="1">1 - Estrangeira (Importação Direta)</option>
+                  <option value="2">2 - Estrangeira (Mercado Interno)</option>
+                </select>
+              </div>
+              <div className="col-span-2">
+                <label className="text-[10px] font-bold uppercase tracking-widest opacity-50 block mb-1">Situação Tributária (CSOSN)</label>
+                <select 
+                  value={icmsSituation}
+                  onChange={(e) => setIcmsSituation(e.target.value)}
+                  className="w-full border border-[#141414] p-2 text-[10px] font-bold focus:ring-1 focus:ring-[#141414] outline-none"
+                >
+                  <option value="102">102 - Tributada sem permissão de crédito</option>
+                  <option value="103">103 - Isenção do ICMS para faixa de receita bruta</option>
+                  <option value="300">300 - Imune</option>
+                  <option value="400">400 - Não tributada pelo Simples Nacional</option>
+                  <option value="500">500 - ICMS cobrado anteriormente por substituição tributária</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
           <div>
             <label className="text-[10px] font-bold uppercase tracking-widest opacity-50 block mb-1">URL da Imagem (Opcional)</label>
             <input 
@@ -3363,6 +3638,7 @@ function OrderModal({ isOpen, onClose, tables, products, waiters, settings, init
   const [peopleCount, setPeopleCount] = useState(1);
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
+  const [customerDocument, setCustomerDocument] = useState('');
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [locationUrl, setLocationUrl] = useState('');
   const [deliveryFee, setDeliveryFee] = useState(0);
@@ -3420,8 +3696,9 @@ function OrderModal({ isOpen, onClose, tables, products, waiters, settings, init
         status: 'PENDING',
         tableId: type === 'TABLE' ? tableId : null,
         waiterId: waiterId || null,
-        customerName: type === 'DELIVERY' ? customerName : null,
-        customerPhone: type === 'DELIVERY' ? customerPhone : null,
+        customerName: type === 'DELIVERY' ? customerName : (customerName || null),
+        customerPhone: type === 'DELIVERY' ? customerPhone : (customerPhone || null),
+        customerDocument: customerDocument || null,
         deliveryAddress: type === 'DELIVERY' ? deliveryAddress : null,
         locationUrl: type === 'DELIVERY' ? locationUrl : null,
         items: selectedProducts.map(sp => {
@@ -3459,6 +3736,7 @@ function OrderModal({ isOpen, onClose, tables, products, waiters, settings, init
       setTableId('');
       setCustomerName('');
       setCustomerPhone('');
+      setCustomerDocument('');
       setDeliveryAddress('');
       setLocationUrl('');
       setDeliveryFee(0);
@@ -3564,6 +3842,16 @@ function OrderModal({ isOpen, onClose, tables, products, waiters, settings, init
                       onChange={(e) => setCustomerName(e.target.value)}
                       className="w-full border border-[#141414] p-3 font-bold text-xs uppercase tracking-widest"
                       placeholder="Ex: João Silva"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold uppercase tracking-widest opacity-50 block mb-2">CPF/CNPJ (Opcional)</label>
+                    <input 
+                      type="text" 
+                      value={customerDocument}
+                      onChange={(e) => setCustomerDocument(e.target.value)}
+                      className="w-full border border-[#141414] p-3 font-bold text-xs uppercase tracking-widest"
+                      placeholder="000.000.000-00"
                     />
                   </div>
                   <div>
@@ -4176,18 +4464,46 @@ function OrderDetailsModal({ isOpen, onClose, orderId, products, settings, table
   const [newItems, setNewItems] = useState<{ id: string, quantity: number }[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [editingCustomer, setEditingCustomer] = useState(false);
+  const [tempCustomerName, setTempCustomerName] = useState('');
+  const [tempCustomerDocument, setTempCustomerDocument] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'CARD' | 'PIX'>('CASH');
 
   useEffect(() => {
     if (!orderId || !isOpen) return;
     setSearchTerm('');
     setSelectedCategory(null);
+    setEditingCustomer(false);
     const unsub = onSnapshot(doc(db, 'orders', orderId), (doc) => {
       if (doc.exists()) {
-        setOrder({ id: doc.id, ...doc.data() } as Order);
+        const data = doc.id ? { id: doc.id, ...doc.data() } as Order : null;
+        setOrder(data);
+        if (data) {
+          setTempCustomerName(data.customerName || '');
+          setTempCustomerDocument(data.customerDocument || '');
+        }
       }
     }, (error) => handleFirestoreError(error, OperationType.GET, `orders/${orderId}`));
     return () => unsub();
   }, [orderId, isOpen]);
+
+  const handleUpdateCustomer = async () => {
+    if (!order) return;
+    setLoading(true);
+    try {
+      await updateDoc(doc(db, 'orders', order.id), {
+        customerName: tempCustomerName || null,
+        customerDocument: tempCustomerDocument || null,
+        updatedAt: serverTimestamp()
+      });
+      showToast("Dados do cliente atualizados!", "success");
+      setEditingCustomer(false);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `orders/${order.id}`);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleUpdateStatus = async (status: OrderStatus) => {
     if (!order) return;
@@ -4208,8 +4524,16 @@ function OrderDetailsModal({ isOpen, onClose, orderId, products, settings, table
       async () => {
         setLoading(true);
         try {
+          const payment = {
+            id: 'pay_' + Date.now(),
+            amount: order.total,
+            method: paymentMethod,
+            timestamp: new Date()
+          };
+
           await updateDoc(doc(db, 'orders', order.id), { 
             status: 'FINISHED', 
+            payments: [payment],
             updatedAt: serverTimestamp() 
           });
           if (order.tableId) {
@@ -4361,6 +4685,28 @@ function OrderDetailsModal({ isOpen, onClose, orderId, products, settings, table
     );
   };
 
+  const handleEmitInvoice = async () => {
+    if (!order) return;
+    setLoading(true);
+    try {
+      const response = await fetch('/api/fiscal/emitir-nfc-e', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId: order.id })
+      });
+      const data = await response.json();
+      if (data.success) {
+        showToast(data.message, "success");
+      } else {
+        showToast(data.error || "Erro ao emitir nota fiscal", "error");
+      }
+    } catch (error) {
+      showToast("Erro na comunicação com o servidor", "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handlePrint = () => {
     if (!order) return;
     const printWindow = window.open('', '_blank');
@@ -4467,19 +4813,21 @@ function OrderDetailsModal({ isOpen, onClose, orderId, products, settings, table
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
-          {/* Delivery/Pickup Info */}
-          {(order.type === 'DELIVERY' || order.type === 'PICKUP') && (
-            <div className={cn(
-              "p-4 border space-y-3",
-              order.type === 'DELIVERY' ? "bg-blue-50 border-blue-200" : "bg-orange-50 border-orange-200"
-            )}>
-              <div className="flex justify-between items-start">
-                <h4 className={cn(
-                  "text-[10px] font-bold uppercase tracking-widest",
-                  order.type === 'DELIVERY' ? "text-blue-800" : "text-orange-800"
-                )}>
-                  Informações de {order.type === 'DELIVERY' ? 'Entrega' : 'Retirada'}
-                </h4>
+          {/* Delivery/Pickup/Customer Info */}
+          <div className={cn(
+            "p-4 border space-y-3",
+            order.type === 'DELIVERY' ? "bg-blue-50 border-blue-200" : 
+            order.type === 'PICKUP' ? "bg-orange-50 border-orange-200" : "bg-gray-50 border-gray-200"
+          )}>
+            <div className="flex justify-between items-start">
+              <h4 className={cn(
+                "text-[10px] font-bold uppercase tracking-widest",
+                order.type === 'DELIVERY' ? "text-blue-800" : 
+                order.type === 'PICKUP' ? "text-orange-800" : "text-gray-800"
+              )}>
+                Informações do Cliente / {order.type === 'DELIVERY' ? 'Entrega' : order.type === 'PICKUP' ? 'Retirada' : 'Mesa'}
+              </h4>
+              <div className="flex gap-2">
                 {order.locationUrl && (
                   <a 
                     href={order.locationUrl} 
@@ -4491,11 +4839,50 @@ function OrderDetailsModal({ isOpen, onClose, orderId, products, settings, table
                     Ver no Mapa
                   </a>
                 )}
+                <button 
+                  onClick={() => setEditingCustomer(!editingCustomer)}
+                  className="text-[10px] font-bold uppercase text-[#141414] hover:underline"
+                >
+                  {editingCustomer ? 'Cancelar' : 'Editar'}
+                </button>
               </div>
+            </div>
+
+            {editingCustomer ? (
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-2">
+                  <input 
+                    type="text"
+                    placeholder="Nome do Cliente"
+                    value={tempCustomerName}
+                    onChange={(e) => setTempCustomerName(e.target.value)}
+                    className="w-full border border-[#141414] p-2 text-[10px] font-bold uppercase tracking-widest focus:outline-none"
+                  />
+                  <input 
+                    type="text"
+                    placeholder="CPF/CNPJ"
+                    value={tempCustomerDocument}
+                    onChange={(e) => setTempCustomerDocument(e.target.value)}
+                    className="w-full border border-[#141414] p-2 text-[10px] font-bold uppercase tracking-widest focus:outline-none"
+                  />
+                </div>
+                <button 
+                  onClick={handleUpdateCustomer}
+                  disabled={loading}
+                  className="w-full bg-[#141414] text-white py-2 text-[10px] font-bold uppercase tracking-widest hover:opacity-90 disabled:opacity-50"
+                >
+                  {loading ? 'Salvando...' : 'Salvar Dados do Cliente'}
+                </button>
+              </div>
+            ) : (
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <p className="text-[8px] uppercase font-bold opacity-50">Cliente</p>
                   <p className="text-xs font-bold">{order.customerName || 'Não informado'}</p>
+                </div>
+                <div>
+                  <p className="text-[8px] uppercase font-bold opacity-50">CPF/CNPJ</p>
+                  <p className="text-xs font-bold">{order.customerDocument || 'Não informado'}</p>
                 </div>
                 <div>
                   <p className="text-[8px] uppercase font-bold opacity-50">Telefone</p>
@@ -4508,8 +4895,8 @@ function OrderDetailsModal({ isOpen, onClose, orderId, products, settings, table
                   </div>
                 )}
               </div>
-            </div>
-          )}
+            )}
+          </div>
           {/* Items List */}
           <div className="space-y-3">
             <h4 className="text-[10px] font-bold uppercase tracking-widest opacity-50">Itens do Pedido</h4>
@@ -4731,6 +5118,18 @@ function OrderDetailsModal({ isOpen, onClose, orderId, products, settings, table
                 <Users size={14} />
                 Dividir
               </button>
+              <button 
+                onClick={handleEmitInvoice}
+                disabled={loading || order.invoiceEmitted}
+                className={cn(
+                  "p-2 border border-[#141414] transition-colors flex items-center gap-2 text-[10px] font-bold uppercase",
+                  order.invoiceEmitted ? "bg-green-100 text-green-700 border-green-700" : "hover:bg-[#141414] hover:text-[#E4E3E0]"
+                )}
+                title="Emitir Nota Fiscal Eletrônica"
+              >
+                <FileText size={14} />
+                {order.invoiceEmitted ? 'Nota Emitida' : 'Emitir NFC-e'}
+              </button>
             </div>
               <div>
                 <p className="text-[10px] uppercase font-bold tracking-widest opacity-50">Total a Pagar</p>
@@ -4749,13 +5148,29 @@ function OrderDetailsModal({ isOpen, onClose, orderId, products, settings, table
               >
                 {addingItems ? 'Cancelar' : 'Adicionar Itens'}
               </button>
-              <button 
-                onClick={handleFinishOrder}
-                disabled={loading}
-                className="bg-green-600 text-white px-6 py-2 text-[10px] font-bold uppercase tracking-widest hover:bg-green-700"
-              >
-                {loading ? '...' : 'Finalizar Conta'}
-              </button>
+              <div className="flex flex-col gap-1">
+                <div className="flex gap-1">
+                  {(['CASH', 'CARD', 'PIX'] as const).map(m => (
+                    <button 
+                      key={m}
+                      onClick={() => setPaymentMethod(m)}
+                      className={cn(
+                        "px-2 py-1 text-[8px] font-bold uppercase tracking-widest border border-[#141414]",
+                        paymentMethod === m ? "bg-[#141414] text-white" : "hover:bg-[#141414]/5"
+                      )}
+                    >
+                      {m === 'CASH' ? 'Dinheiro' : m === 'CARD' ? 'Cartão' : 'PIX'}
+                    </button>
+                  ))}
+                </div>
+                <button 
+                  onClick={handleFinishOrder}
+                  disabled={loading}
+                  className="bg-green-600 text-white px-6 py-2 text-[10px] font-bold uppercase tracking-widest hover:bg-green-700 w-full"
+                >
+                  {loading ? '...' : 'Finalizar Conta'}
+                </button>
+              </div>
               <button 
                 onClick={handleCancelOrder}
                 disabled={loading}
@@ -5065,6 +5480,8 @@ function CashierView({ orders, products, tables, settings, user, showToast }: { 
   const [isOpening, setIsOpening] = useState(false);
   const [loading, setLoading] = useState(true);
   const [finalizing, setFinalizing] = useState(false);
+  const [customerName, setCustomerName] = useState('');
+  const [customerDocument, setCustomerDocument] = useState('');
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -5168,7 +5585,7 @@ function CashierView({ orders, products, tables, settings, user, showToast }: { 
       const selectedTable = tables.find(t => t.id === selectedTableId);
       
       const orderData = {
-        type: selectedTableId ? 'TABLE' : 'TABLE', 
+        type: selectedTableId ? 'TABLE' : 'PICKUP', 
         status: 'FINISHED',
         tableId: selectedTableId || null,
         tableName: selectedTable ? `Mesa ${selectedTable.number}` : 'Venda Rápida',
@@ -5186,13 +5603,15 @@ function CashierView({ orders, products, tables, settings, user, showToast }: { 
           id: 'pay_' + Date.now(),
           amount: total,
           method: paymentMethod,
-          timestamp: serverTimestamp()
+          timestamp: new Date()
         }],
         subtotal: subtotal,
         discount: discountAmount,
         serviceFee: 0,
         deliveryFee: 0,
         total: total,
+        customerName: customerName || null,
+        customerDocument: customerDocument || null,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
         cashierSessionId: session.id
@@ -5213,6 +5632,8 @@ function CashierView({ orders, products, tables, settings, user, showToast }: { 
       setCart([]);
       setDiscount(0);
       setSelectedTableId(null);
+      setCustomerName('');
+      setCustomerDocument('');
       showToast("Venda finalizada com sucesso!", "success");
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, 'orders');
@@ -5448,6 +5869,24 @@ function CashierView({ orders, products, tables, settings, user, showToast }: { 
                     <span className="text-[10px] font-bold uppercase tracking-widest opacity-50">Total Final</span>
                     <span className="text-3xl font-mono font-bold">R$ {(calculateCartTotal() * (1 - discount / 100)).toFixed(2)}</span>
                   </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest opacity-50 block">Cliente (Opcional)</label>
+                  <input 
+                    type="text" 
+                    placeholder="Nome do Cliente"
+                    value={customerName}
+                    onChange={(e) => setCustomerName(e.target.value)}
+                    className="w-full border border-[#141414] p-2 text-[10px] font-bold uppercase tracking-widest focus:outline-none"
+                  />
+                  <input 
+                    type="text" 
+                    placeholder="CPF/CNPJ para Nota"
+                    value={customerDocument}
+                    onChange={(e) => setCustomerDocument(e.target.value)}
+                    className="w-full border border-[#141414] p-2 text-[10px] font-bold uppercase tracking-widest focus:outline-none"
+                  />
                 </div>
 
                 <div className="space-y-2">

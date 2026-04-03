@@ -66,7 +66,12 @@ service cloud.firestore {
              data.price is number && data.price >= 0 &&
              data.category is string &&
              data.available is bool &&
-             data.stock is number;
+             data.stock is number &&
+             (!('ncm' in data) || data.ncm is string) &&
+             (!('cest' in data) || data.cest is string) &&
+             (!('cfop' in data) || data.cfop is string) &&
+             (!('icmsOrigin' in data) || data.icmsOrigin is string) &&
+             (!('icmsSituation' in data) || data.icmsSituation is string);
     }
 
     function isValidOrder(data) {
@@ -78,7 +83,22 @@ service cloud.firestore {
              (!('deleted' in data) || data.deleted is bool) &&
              (!('deletedAt' in data) || data.deletedAt is timestamp) &&
              (!('isPickup' in data) || data.isPickup is bool) &&
-             (!('locationUrl' in data) || data.locationUrl is string);
+             (!('locationUrl' in data) || data.locationUrl == null || data.locationUrl is string) &&
+             (!('tableId' in data) || data.tableId == null || data.tableId is string) &&
+             (!('waiterId' in data) || data.waiterId == null || data.waiterId is string) &&
+             (!('customerName' in data) || data.customerName == null || data.customerName is string) &&
+             (!('customerPhone' in data) || data.customerPhone == null || data.customerPhone is string) &&
+             (!('customerDocument' in data) || data.customerDocument == null || data.customerDocument is string) &&
+             (!('deliveryAddress' in data) || data.deliveryAddress == null || data.deliveryAddress is string) &&
+             (!('invoiceEmitted' in data) || data.invoiceEmitted is bool) &&
+             (!('invoiceUrl' in data) || data.invoiceUrl is string) &&
+             (!('serviceFee' in data) || data.serviceFee is number) &&
+             (!('deliveryFee' in data) || data.deliveryFee is number) &&
+             (!('payments' in data) || data.payments is list) &&
+             (!('peopleCount' in data) || data.peopleCount is number) &&
+             (!('platform' in data) || data.platform == null || data.platform is string) &&
+             (!('createdAt' in data) || data.createdAt is timestamp) &&
+             (!('updatedAt' in data) || data.updatedAt is timestamp);
     }
 
     function isValidTable(data) {
@@ -127,7 +147,14 @@ service cloud.firestore {
                (!('backgroundColor' in data.theme) || data.theme.backgroundColor is string) &&
                (!('textColor' in data.theme) || data.theme.textColor is string) &&
                (!('logoUrl' in data.theme) || data.theme.logoUrl is string)
-             ));
+             )) &&
+             (!('ifoodClientId' in data) || data.ifoodClientId is string) &&
+             (!('ifoodClientSecret' in data) || data.ifoodClientSecret is string) &&
+             (!('fiscalEnvironment' in data) || data.fiscalEnvironment in ['homologacao', 'producao']) &&
+             (!('cscId' in data) || data.cscId is string) &&
+             (!('cscToken' in data) || data.cscToken is string) &&
+             (!('certificateBase64' in data) || data.certificateBase64 is string) &&
+             (!('certificatePassword' in data) || data.certificatePassword is string);
     }
 
     function isValidCashierSession(data) {

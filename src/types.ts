@@ -20,6 +20,11 @@ export interface Product {
   imageUrl?: string;
   imageFit?: 'cover' | 'contain';
   barcode?: string;
+  ncm?: string;
+  cest?: string;
+  cfop?: string;
+  icmsOrigin?: string;
+  icmsSituation?: string;
 }
 
 export interface Table {
@@ -62,9 +67,13 @@ export interface Order {
   peopleCount?: number;
   customerName?: string;
   customerPhone?: string;
+  customerDocument?: string;
   deliveryAddress?: string;
   locationUrl?: string;
   platform?: string;
+  tableName?: string;
+  discount?: number;
+  cashierSessionId?: string;
   invoiceEmitted?: boolean;
   invoiceUrl?: string;
   createdAt: any;
@@ -121,6 +130,15 @@ export interface RestaurantSettings {
     textColor: string;
     logoUrl?: string;
   };
+  // iFood Integration
+  ifoodClientId?: string;
+  ifoodClientSecret?: string;
+  // Fiscal Integration (Option 2)
+  fiscalEnvironment?: 'homologacao' | 'producao';
+  cscId?: string;
+  cscToken?: string;
+  certificateBase64?: string;
+  certificatePassword?: string;
 }
 
 export interface CashierSession {
@@ -154,6 +172,8 @@ export interface Customer {
   id: string;
   name: string;
   phone: string;
+  document?: string;
+  email?: string;
   address: {
     street: string;
     number: string;
