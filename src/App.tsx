@@ -5,6 +5,7 @@
 
 import * as React from 'react';
 import { useState, useEffect, createContext, useContext, ReactNode, useRef, ChangeEvent } from 'react';
+// Importação de ícones da biblioteca lucide-react
 import { 
   LayoutDashboard, 
   Utensils, 
@@ -51,10 +52,12 @@ import {
   ChevronRight,
   UserPlus
 } from 'lucide-react';
+// Importação de bibliotecas para animação, QR Code e utilitários de CSS
 import { motion, AnimatePresence } from 'motion/react';
 import { QRCodeCanvas } from 'qrcode.react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+// Importação de serviços do Firebase (Autenticação e Banco de Dados)
 import { auth, db, googleProvider, signInWithPopup, onAuthStateChanged, User, signInWithEmailAndPassword, signOut, createUserWithEmailAndPassword, sendPasswordResetEmail } from './firebase';
 import { 
   collection, 
@@ -73,6 +76,7 @@ import {
   serverTimestamp,
   increment 
 } from 'firebase/firestore';
+// Importação de componentes de gráficos
 import { 
   BarChart, 
   Bar, 
@@ -87,11 +91,14 @@ import {
   PieChart as RePieChart,
   Pie
 } from 'recharts';
+// Importação de tipos e serviços locais
 import { Table, Order, Product, Waiter, TableStatus, RestaurantSettings, OrderStatus, CashierSession, FirestoreUser, AllowedEmail } from './types';
 import { WhatsAppService } from './services/whatsappService';
 
-// --- Error Handling & Utilities ---
+// --- Tratamento de Erros e Utilitários ---
 
+// Componente de Fronteira de Erro (Error Boundary)
+// Captura erros inesperados na renderização e exibe uma mensagem amigável
 class ErrorBoundary extends React.Component<any, any> {
   state: any;
   props: any;
@@ -4729,25 +4736,32 @@ function OrderDetailsModal({ isOpen, onClose, orderId, products, settings, table
     );
   };
 
+  // Função para emitir a NFC-e (Nota Fiscal de Consumidor Eletrônica)
   const handleEmitInvoice = async () => {
-    if (!order) return;
-    setLoading(true);
+    if (!order) return; // Se não houver pedido, não faz nada
+    setLoading(true); // Ativa o estado de carregamento
     try {
+      // Faz uma chamada para o nosso backend que processa a emissão fiscal
       const response = await fetch('/api/fiscal/emitir-nfc-e', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ orderId: order.id })
       });
+      
       const data = await response.json();
+      
       if (data.success) {
+        // Exibe mensagem de sucesso vinda do servidor
         showToast(data.message, "success");
       } else {
+        // Exibe erro específico retornado pela API fiscal
         showToast(data.error || "Erro ao emitir nota fiscal", "error");
       }
     } catch (error) {
+      // Trata erros de conexão com o servidor
       showToast("Erro na comunicação com o servidor", "error");
     } finally {
-      setLoading(false);
+      setLoading(false); // Desativa o estado de carregamento
     }
   };
 

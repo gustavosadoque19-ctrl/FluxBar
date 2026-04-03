@@ -1,25 +1,29 @@
-export type OrderType = 'TABLE' | 'DELIVERY' | 'PICKUP';
-export type OrderStatus = 'PENDING' | 'PREPARING' | 'READY' | 'DELIVERING' | 'FINISHED' | 'CANCELLED';
-export type TableStatus = 'Livre' | 'Ocupada' | 'Aguardando Limpeza' | 'Fechando Conta';
+// Definições de tipos básicos para o sistema de pedidos
+export type OrderType = 'TABLE' | 'DELIVERY' | 'PICKUP'; // Mesa, Entrega ou Retirada
+export type OrderStatus = 'PENDING' | 'PREPARING' | 'READY' | 'DELIVERING' | 'FINISHED' | 'CANCELLED'; // Estados do pedido
+export type TableStatus = 'Livre' | 'Ocupada' | 'Aguardando Limpeza' | 'Fechando Conta'; // Estados da mesa
 
+// Interface para Garçons
 export interface Waiter {
   id: string;
   name: string;
   shift: 'Manhã' | 'Tarde' | 'Noite';
-  commissionRate: number;
+  commissionRate: number; // Taxa de comissão
 }
 
+// Interface para Produtos do Cardápio
 export interface Product {
   id: string;
   name: string;
   price: number;
-  cost: number;
+  cost: number; // Preço de custo
   category: 'Bebidas' | 'Pratos' | 'Sobremesas' | 'Entradas';
-  available: boolean;
-  stock: number;
+  available: boolean; // Se está disponível para venda
+  stock: number; // Quantidade em estoque
   imageUrl?: string;
   imageFit?: 'cover' | 'contain';
   barcode?: string;
+  // Campos Fiscais para NFC-e
   ncm?: string;
   cest?: string;
   cfop?: string;
@@ -27,30 +31,34 @@ export interface Product {
   icmsSituation?: string;
 }
 
+// Interface para Mesas
 export interface Table {
   id: string;
   number: number;
   status: TableStatus;
-  currentOrderId?: string;
+  currentOrderId?: string; // ID do pedido ativo na mesa
 }
 
+// Interface para Itens dentro de um Pedido
 export interface OrderItem {
   productId: string;
   name: string;
   price: number;
   cost: number;
   quantity: number;
-  paid?: boolean;
+  paid?: boolean; // Se o item já foi pago (para divisão de conta)
 }
 
+// Interface para Pagamentos realizados
 export interface Payment {
   id: string;
   amount: number;
-  method: 'CASH' | 'CARD' | 'PIX';
+  method: 'CASH' | 'CARD' | 'PIX'; // Dinheiro, Cartão ou PIX
   timestamp: any;
   payerName?: string;
 }
 
+// Interface Principal para Pedidos
 export interface Order {
   id: string;
   type: OrderType;
@@ -61,21 +69,21 @@ export interface Order {
   items: OrderItem[];
   payments?: Payment[];
   subtotal: number;
-  serviceFee: number;
-  deliveryFee: number;
+  serviceFee: number; // Taxa de serviço
+  deliveryFee: number; // Taxa de entrega
   total: number;
-  peopleCount?: number;
+  peopleCount?: number; // Quantidade de pessoas na mesa
   customerName?: string;
   customerPhone?: string;
-  customerDocument?: string;
+  customerDocument?: string; // CPF/CNPJ para nota fiscal
   deliveryAddress?: string;
   locationUrl?: string;
-  platform?: string;
+  platform?: string; // Ex: iFood
   tableName?: string;
   discount?: number;
-  cashierSessionId?: string;
-  invoiceEmitted?: boolean;
-  invoiceUrl?: string;
+  cashierSessionId?: string; // ID do turno de caixa
+  invoiceEmitted?: boolean; // Se a nota fiscal foi emitida
+  invoiceUrl?: string; // Link para o PDF da nota
   createdAt: any;
   updatedAt: any;
   deleted?: boolean;
@@ -83,6 +91,7 @@ export interface Order {
   isPickup?: boolean;
 }
 
+// Interface para Configurações do Restaurante
 export interface RestaurantSettings {
   id: string;
   serviceFee: number;
@@ -105,7 +114,7 @@ export interface RestaurantSettings {
     orderDelivering?: string;
     orderFinished?: string;
   };
-  // Fiscal fields
+  // Campos Fiscais da Empresa
   CNPJ?: string;
   IE?: string;
   UF?: string;
@@ -113,16 +122,16 @@ export interface RestaurantSettings {
   xMun?: string;
   cMun?: string;
   cUF?: string;
-  // New settings
+  // Novas configurações de operação
   blockSaleNoStock: boolean;
   maxDiscount: number;
   printMode: 'ALWAYS' | 'NEVER' | 'MANUAL';
   erpSyncFrequency: 'REALTIME' | 'HOURLY' | 'DAILY';
-  // WhatsApp Bot Settings
+  // Configurações do Bot de WhatsApp
   whatsappBotEnabled: boolean;
   whatsappBotWelcomeMessage: string;
   whatsappBotMenuUrl: string;
-  // Theme Customization
+  // Customização Visual (Tema)
   theme?: {
     primaryColor: string;
     secondaryColor: string;
@@ -130,10 +139,10 @@ export interface RestaurantSettings {
     textColor: string;
     logoUrl?: string;
   };
-  // iFood Integration
+  // Integração iFood
   ifoodClientId?: string;
   ifoodClientSecret?: string;
-  // Fiscal Integration (Option 2)
+  // Integração Fiscal (NFe.io)
   fiscalEnvironment?: 'homologacao' | 'producao';
   nfeIoCompanyId?: string;
   cscId?: string;
@@ -142,33 +151,37 @@ export interface RestaurantSettings {
   certificatePassword?: string;
 }
 
+// Interface para Sessões de Caixa (Turnos)
 export interface CashierSession {
   id: string;
   openedAt: any;
   closedAt?: any;
   openedBy: string;
   closedBy?: string;
-  openingBalance: number;
-  closingBalanceSystem?: number;
-  closingBalancePhysical?: number;
+  openingBalance: number; // Saldo inicial
+  closingBalanceSystem?: number; // Saldo esperado pelo sistema
+  closingBalancePhysical?: number; // Saldo contado fisicamente
   status: 'OPEN' | 'CLOSED';
 }
 
+// Interface para Usuários do Sistema
 export interface FirestoreUser {
   uid: string;
   email: string;
   displayName?: string;
-  role: 'admin' | 'manager' | 'waiter' | 'kitchen' | 'user';
-  maxDiscount?: number;
+  role: 'admin' | 'manager' | 'waiter' | 'kitchen' | 'user'; // Papéis de acesso
+  maxDiscount?: number; // Desconto máximo permitido para este usuário
   createdAt: any;
 }
 
+// Interface para E-mails autorizados a se cadastrar
 export interface AllowedEmail {
   id: string;
   email: string;
   createdAt: any;
 }
 
+// Interface para Clientes
 export interface Customer {
   id: string;
   name: string;

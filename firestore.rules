@@ -3,40 +3,42 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     // ===============================================================
-    // Assumed Data Model
+    // Modelo de Dados Assumido (Documentação)
     // ===============================================================
     //
-    // Collection: orders
-    // Fields: items, status, paymentStatus, subtotal, total, type, createdAt, updatedAt, ...
+    // Coleção: orders (Pedidos)
+    // Campos: items, status, paymentStatus, subtotal, total, type, createdAt, updatedAt, ...
     //
-    // Collection: products
-    // Fields: name, price, category, available, cost, barcode, imageUrl, ...
+    // Coleção: products (Produtos)
+    // Campos: name, price, category, available, cost, barcode, imageUrl, ...
     //
-    // Collection: tables
-    // Fields: number, status, capacity, currentOrderId
+    // Coleção: tables (Mesas)
+    // Campos: number, status, capacity, currentOrderId
     //
-    // Collection: waiters
-    // Fields: name, phone, active
+    // Coleção: waiters (Garçons)
+    // Campos: name, phone, active
     //
-    // Collection: settings
-    // Fields: restaurantName, address, phone, serviceFee, ...
+    // Coleção: settings (Configurações)
+    // Campos: restaurantName, address, phone, serviceFee, ...
     //
-    // Collection: cashier_sessions
-    // Fields: openedAt, closedAt, openedBy, closedBy, openingBalance, closingBalancePhysical, closingBalanceSystem, status
+    // Coleção: cashier_sessions (Turnos de Caixa)
+    // Campos: openedAt, closedAt, openedBy, closedBy, openingBalance, closingBalancePhysical, closingBalanceSystem, status
     //
-    // Collection: allowed_emails
-    // Fields: email, createdAt
+    // Coleção: allowed_emails (E-mails autorizados)
+    // Campos: email, createdAt
     //
     // ===============================================================
 
     // ===============================================================
-    // Helper Functions
+    // Funções Auxiliares de Segurança
     // ===============================================================
     
+    // Verifica se o usuário está logado
     function isAuthenticated() {
       return request.auth != null;
     }
 
+    // Verifica se o usuário logado é um Administrador
     function isAdmin() {
       return isAuthenticated() &&
         (request.auth.token.email == "gustavosadoque19@gmail.com" ||
@@ -44,6 +46,7 @@ service cloud.firestore {
           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'));
     }
 
+    // Verifica se o usuário logado é um Gerente ou Administrador
     function isManager() {
       return isAuthenticated() &&
         (isAdmin() || 
@@ -51,16 +54,19 @@ service cloud.firestore {
           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'manager'));
     }
 
+    // Valida se todos os campos obrigatórios estão presentes na requisição
     function hasRequiredFields(fields) {
       return request.resource.data.keys().hasAll(fields);
     }
 
+    // Garante que apenas os campos permitidos estão sendo enviados
     function hasOnlyAllowedFields(fields) {
       return request.resource.data.keys().hasOnly(fields);
     }
 
-    // --- Domain Validators ---
+    // --- Validadores de Domínio (Garantem a integridade dos dados) ---
 
+    // Validação para criação/edição de Produtos
     function isValidProduct(data) {
       return data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
              data.price is number && data.price >= 0 &&
@@ -74,6 +80,7 @@ service cloud.firestore {
              (!('icmsSituation' in data) || data.icmsSituation is string);
     }
 
+    // Validação para criação/edição de Pedidos
     function isValidOrder(data) {
       return data.items is list &&
              data.status in ['PENDING', 'PREPARING', 'DELIVERING', 'FINISHED', 'CANCELLED', 'READY'] &&
@@ -101,15 +108,18 @@ service cloud.firestore {
              (!('updatedAt' in data) || data.updatedAt is timestamp);
     }
 
+    // Validação para Mesas
     function isValidTable(data) {
       return data.number is number &&
              data.status in ['Livre', 'Ocupada', 'Aguardando Limpeza', 'Fechando Conta'];
     }
 
+    // Validação para Garçons
     function isValidWaiter(data) {
       return data.name is string && data.name.size() > 0;
     }
 
+    // Validação para Configurações do Sistema
     function isValidSettings(data) {
       return (!('restaurantName' in data) || (data.restaurantName is string && data.restaurantName.size() > 0 && data.restaurantName.size() < 100)) &&
              (!('address' in data) || (data.address is string && data.address.size() < 500)) &&
@@ -158,6 +168,7 @@ service cloud.firestore {
              (!('certificatePassword' in data) || data.certificatePassword is string);
     }
 
+    // Validação para Sessões de Caixa
     function isValidCashierSession(data) {
       return data.openedAt is timestamp &&
              data.openedBy is string &&
@@ -165,6 +176,7 @@ service cloud.firestore {
              data.status in ['OPEN', 'CLOSED'];
     }
 
+    // Validação para Usuários
     function isValidUser(data) {
       return data.uid is string &&
              data.email is string &&
@@ -173,10 +185,10 @@ service cloud.firestore {
     }
 
     // ===============================================================
-    // Rules
+    // Regras de Acesso por Coleção
     // ===============================================================
 
-    // Users Collection (for roles)
+    // Coleção de Usuários (Controle de Acesso)
     match /users/{userId} {
       allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
       allow create: if isAuthenticated() && 
@@ -187,14 +199,14 @@ service cloud.firestore {
                      request.resource.data.role in ['admin', 'manager', 'waiter', 'kitchen', 'user']);
     }
 
-    // Products
+    // Produtos do Cardápio
     match /products/{productId} {
-      allow read: if true;
+      allow read: if true; // Público para o cardápio digital
       allow create, update: if isManager() && isValidProduct(request.resource.data);
       allow delete: if isAdmin();
     }
 
-    // Orders
+    // Pedidos
     match /orders/{orderId} {
       allow read: if isAuthenticated();
       allow create: if (isAuthenticated() || true) && isValidOrder(request.resource.data);
@@ -203,26 +215,27 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
-    // Tables
+    // Mesas
     match /tables/{tableId} {
       allow read: if true;
       allow create, update: if isAuthenticated() && isValidTable(request.resource.data);
       allow delete: if isAdmin();
     }
 
-    // Waiters
+    // Garçons
     match /waiters/{waiterId} {
       allow read: if isAuthenticated();
       allow create, update: if isAdmin() && isValidWaiter(request.resource.data);
       allow delete: if isAdmin();
     }
 
-    // Settings
+    // Configurações Gerais (Públicas)
     match /settings/general {
       allow read: if true;
       allow write: if isManager();
     }
 
+    // Configurações Privadas (Fiscais/Integrações)
     match /settings/private {
       allow read, write: if isManager();
     }
@@ -231,7 +244,7 @@ service cloud.firestore {
       allow read, write: if isManager();
     }
 
-    // Cashier Sessions
+    // Sessões de Caixa (Turnos)
     match /cashier_sessions/{sessionId} {
       allow read: if isAuthenticated();
       allow create: if isAuthenticated() && isValidCashierSession(request.resource.data);
@@ -239,9 +252,9 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
-    // Allowed Emails
+    // E-mails Autorizados
     match /allowed_emails/{emailId} {
-      allow read: if true; // Needed for registration check before login
+      allow read: if true; // Necessário para verificar antes do login
       allow write: if isAdmin();
     }
   }
