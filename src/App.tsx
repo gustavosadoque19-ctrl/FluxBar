@@ -635,12 +635,11 @@ function AppContent() {
   }, [settings?.theme]);
 
   useEffect(() => {
-    // Listen to Settings
-    const unsubSettings = onSnapshot(doc(db, 'settings', 'general'), (doc) => {
-      if (doc.exists()) {
-        setSettings({ id: doc.id, ...doc.data() } as RestaurantSettings);
+    // Listen to Public Settings
+    const unsubGeneral = onSnapshot(doc(db, 'settings', 'general'), (docSnap) => {
+      if (docSnap.exists()) {
+        setSettings(prev => ({ ...prev, ...docSnap.data(), id: 'general' } as RestaurantSettings));
       } else {
-        // Initialize default settings if not exists
         const defaultSettings = {
           restaurantName: 'FLUXBar',
           address: '',
@@ -648,17 +647,29 @@ function AppContent() {
           operatingHours: { open: '08:00', close: '22:00' },
           happyHour: { enabled: false, start: '17:00', end: '19:00', discount: 20 }
         };
-        setSettings({ id: 'general', ...defaultSettings } as RestaurantSettings);
+        setSettings(prev => ({ ...prev, ...defaultSettings, id: 'general' } as RestaurantSettings));
       }
     }, (error) => {
-      // Only log error if not in public menu mode (where we expect some permission limits)
-      if (!isPublicMenu) {
-        handleFirestoreError(error, OperationType.GET, 'settings/general');
-      }
+      if (!isPublicMenu) handleFirestoreError(error, OperationType.GET, 'settings/general');
     });
 
-    return () => unsubSettings();
-  }, [db, isPublicMenu]);
+    // Listen to Private Settings (if manager)
+    let unsubPrivate = () => {};
+    if (user && isAdmin) {
+      unsubPrivate = onSnapshot(doc(db, 'settings', 'private'), (docSnap) => {
+        if (docSnap.exists()) {
+          setSettings(prev => ({ ...prev, ...docSnap.data() } as RestaurantSettings));
+        }
+      }, (error) => {
+        handleFirestoreError(error, OperationType.GET, 'settings/private');
+      });
+    }
+
+    return () => {
+      unsubGeneral();
+      unsubPrivate();
+    };
+  }, [db, isPublicMenu, user, isAdmin]);
 
   const [userWantsNotifications, setUserWantsNotifications] = useState(() => {
     return localStorage.getItem('userWantsNotifications') !== 'false';
@@ -2224,10 +2235,33 @@ function SettingsView({
   const handleSave = async () => {
     setSaving(true);
     try {
-      await setDoc(doc(db, 'settings', 'general'), localSettings, { merge: true });
+      // Split settings into public and private
+      const publicFields = [
+        'restaurantName', 'address', 'serviceFee', 'operatingHours', 'happyHour', 
+        'whatsappNumber', 'whatsappTemplates', 'theme', 'blockSaleNoStock', 
+        'maxDiscount', 'printMode', 'erpSyncFrequency', 'whatsappBotEnabled', 
+        'whatsappBotWelcomeMessage', 'whatsappBotMenuUrl', 'CNPJ', 'IE', 'UF', 'CEP', 'xMun', 'cMun', 'cUF'
+      ];
+      
+      const publicSettings: any = {};
+      const privateSettings: any = {};
+      
+      Object.entries(localSettings).forEach(([key, value]) => {
+        if (publicFields.includes(key)) {
+          publicSettings[key] = value;
+        } else if (key !== 'id') {
+          privateSettings[key] = value;
+        }
+      });
+
+      await Promise.all([
+        setDoc(doc(db, 'settings', 'general'), publicSettings, { merge: true }),
+        setDoc(doc(db, 'settings', 'private'), privateSettings, { merge: true })
+      ]);
+      
       showToast("Configurações salvas com sucesso!", "success");
     } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, 'settings/general');
+      handleFirestoreError(error, OperationType.UPDATE, 'settings');
     } finally {
       setSaving(false);
     }

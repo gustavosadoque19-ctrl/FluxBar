@@ -217,9 +217,17 @@ service cloud.firestore {
     }
 
     // Settings
-    match /settings/{settingsId} {
+    match /settings/general {
       allow read: if true;
-      allow create, update: if isManager() && isValidSettings(request.resource.data);
+      allow write: if isManager();
+    }
+
+    match /settings/private {
+      allow read, write: if isManager();
+    }
+
+    match /settings/{settingsId} {
+      allow read, write: if isManager();
     }
 
     // Cashier Sessions

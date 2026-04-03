@@ -19,8 +19,6 @@ if (fs.existsSync(firebaseConfigPath)) {
     firebaseConfig = JSON.parse(fs.readFileSync(firebaseConfigPath, "utf-8"));
     console.log(`Initializing Firebase Admin for project: ${firebaseConfig.projectId}`);
     
-    // In this environment, we should try to initialize without explicit credentials first
-    // as the environment should provide them. If that fails, we try with projectId.
     if (admin.apps.length === 0) {
       admin.initializeApp({
         projectId: firebaseConfig.projectId,
@@ -28,15 +26,11 @@ if (fs.existsSync(firebaseConfigPath)) {
     }
   } catch (e: any) {
     console.error("Error initializing Firebase Admin with config:", e.message);
-    if (admin.apps.length === 0) {
-      admin.initializeApp();
-    }
+    if (admin.apps.length === 0) admin.initializeApp();
   }
 } else {
   console.warn("firebase-applet-config.json not found, using default Firebase Admin initialization");
-  if (admin.apps.length === 0) {
-    admin.initializeApp();
-  }
+  if (admin.apps.length === 0) admin.initializeApp();
 }
 
 const getDb = () => {
@@ -50,6 +44,32 @@ const getDb = () => {
     return getFirestore();
   }
 };
+
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+function handleFirestoreError(error: any, operationType: OperationType, path: string | null) {
+  const errInfo = {
+    error: error.message || String(error),
+    code: error.code,
+    operationType,
+    path,
+    timestamp: new Date().toISOString()
+  };
+  console.error('Firestore Backend Error:', JSON.stringify(errInfo, null, 2));
+  
+  if (error.code === 7 || error.message?.includes('PERMISSION_DENIED')) {
+    console.error('CRITICAL: Permission Denied. Please ensure the service account has "Cloud Datastore User" role for the specific database.');
+  }
+  
+  return errInfo;
+}
 
 async function startServer() {
   const app = express();
@@ -79,12 +99,17 @@ async function startServer() {
       
       // Store in Firestore
       const db = getDb();
-      await db.collection('settings').doc('ifood').set({
-        accessToken,
-        refreshToken,
-        expiresAt: Date.now() + (expiresIn * 1000),
-        updatedAt: FieldValue.serverTimestamp()
-      }, { merge: true });
+      try {
+        await db.collection('settings').doc('ifood').set({
+          accessToken,
+          refreshToken,
+          expiresAt: Date.now() + (expiresIn * 1000),
+          updatedAt: FieldValue.serverTimestamp()
+        }, { merge: true });
+      } catch (e) {
+        handleFirestoreError(e, OperationType.WRITE, 'settings/ifood');
+        throw e;
+      }
 
       res.json({ success: true, accessToken });
     } catch (error: any) {
@@ -97,8 +122,14 @@ async function startServer() {
   app.get("/api/ifood/orders/poll", async (req, res) => {
     try {
       const db = getDb();
-      const ifoodDoc = await db.collection('settings').doc('ifood').get();
-      const ifoodData = ifoodDoc.data();
+      let ifoodData: any = null;
+      try {
+        const ifoodDoc = await db.collection('settings').doc('ifood').get();
+        ifoodData = ifoodDoc.data();
+      } catch (e) {
+        handleFirestoreError(e, OperationType.GET, 'settings/ifood');
+        throw e;
+      }
 
       if (!ifoodData?.accessToken) {
         return res.status(401).json({ error: 'iFood not connected' });
@@ -140,7 +171,11 @@ async function startServer() {
               updatedAt: FieldValue.serverTimestamp()
             };
 
-            await db.collection('orders').add(orderData);
+            try {
+              await db.collection('orders').add(orderData);
+            } catch (e) {
+              handleFirestoreError(e, OperationType.CREATE, 'orders');
+            }
           }
         }
 
@@ -164,13 +199,21 @@ async function startServer() {
       const db = getDb();
       
       // 1. Get order and settings
-      const orderDoc = await db.collection('orders').doc(orderId).get();
-      const settingsDoc = await db.collection('settings').doc('general').get();
+      let orderDoc, settingsDoc;
+      try {
+        [orderDoc, settingsDoc] = await Promise.all([
+          db.collection('orders').doc(orderId).get(),
+          db.collection('settings').doc('private').get()
+        ]);
+      } catch (e) {
+        handleFirestoreError(e, OperationType.GET, 'orders/settings');
+        throw e;
+      }
       
-      console.log(`Order found: ${orderDoc.exists}, Settings found: ${settingsDoc.exists}`);
+      console.log(`Order found: ${orderDoc.exists}, Private Settings found: ${settingsDoc.exists}`);
       
       if (!orderDoc.exists || !settingsDoc.exists) {
-        return res.status(404).json({ error: `Order (${orderDoc.exists}) or Settings (${settingsDoc.exists}) not found` });
+        return res.status(404).json({ error: `Order (${orderDoc.exists}) or Private Settings (${settingsDoc.exists}) not found` });
       }
       
       const order = orderDoc.data() as any;
@@ -192,11 +235,16 @@ async function startServer() {
       const mockInvoiceUrl = `https://portal.fazenda.sp.gov.br/consultar-nfe?chave=${mockProtocol}`;
 
       // 3. Update order with invoice info
-      await db.collection('orders').doc(orderId).update({
-        invoiceEmitted: true,
-        invoiceUrl: mockInvoiceUrl,
-        updatedAt: FieldValue.serverTimestamp()
-      });
+      try {
+        await db.collection('orders').doc(orderId).update({
+          invoiceEmitted: true,
+          invoiceUrl: mockInvoiceUrl,
+          updatedAt: FieldValue.serverTimestamp()
+        });
+      } catch (e) {
+        handleFirestoreError(e, OperationType.UPDATE, `orders/${orderId}`);
+        throw e;
+      }
 
       res.json({ 
         success: true, 
