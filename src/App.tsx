@@ -5,52 +5,7 @@
 
 import * as React from 'react';
 import { useState, useEffect, createContext, useContext, ReactNode, useRef, ChangeEvent } from 'react';
-import { 
-  LayoutDashboard, 
-  Utensils, 
-  Truck, 
-  Users, 
-  ClipboardList, 
-  Settings,
-  Store,
-  Clock,
-  Palette,
-  Plus,
-  Minus,
-  Trash2,
-  Search,
-  Bell,
-  UserCircle,
-  LogIn,
-  LogOut,
-  AlertCircle,
-  Printer,
-  Share2,
-  ExternalLink,
-  ShoppingCart,
-  FileText,
-  ChefHat,
-  Smartphone,
-  BarChart3,
-  Banknote,
-  TrendingUp,
-  PieChart,
-  ArrowUpRight,
-  ArrowDownRight,
-  DollarSign,
-  Package,
-  MapPin,
-  MessageSquare,
-  Barcode,
-  Camera,
-  Maximize2,
-  Minimize2,
-  X,
-  RefreshCw,
-  ChevronLeft,
-  ChevronRight,
-  UserPlus
-} from 'lucide-react';
+import { LayoutDashboard, Utensils, Truck, Users, ClipboardList, Settings, Store, Clock, Palette, Plus, Minus, Trash2, Search, Bell, CircleUser as UserCircle, LogIn, LogOut, CircleAlert as AlertCircle, Printer, Share2, ExternalLink, ShoppingCart, FileText, ChefHat, Smartphone, ChartBar as BarChart3, Banknote, TrendingUp, ChartPie as PieChart, ArrowUpRight, ArrowDownRight, DollarSign, Package, MapPin, MessageSquare, Barcode, Camera, Maximize2, Minimize2, X, RefreshCw, ChevronLeft, ChevronRight, UserPlus } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { QRCodeCanvas } from 'qrcode.react';
 import { clsx, type ClassValue } from 'clsx';
@@ -4731,6 +4686,10 @@ function OrderDetailsModal({ isOpen, onClose, orderId, products, settings, table
       const data = await response.json();
       if (data.success) {
         showToast(data.message, "success");
+        const updatedOrderDoc = await getDoc(doc(db, 'orders', order.id));
+        if (updatedOrderDoc.exists()) {
+          setOrder(updatedOrderDoc.data() as Order);
+        }
       } else {
         showToast(data.error || "Erro ao emitir nota fiscal", "error");
       }

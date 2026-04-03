@@ -197,48 +197,72 @@ async function startServer() {
     try {
       const { orderId } = req.body;
       const db = getDb();
-      
+
       // 1. Get order and settings
       let orderDoc, settingsDoc;
       try {
         [orderDoc, settingsDoc] = await Promise.all([
           db.collection('orders').doc(orderId).get(),
-          db.collection('settings').doc('private').get()
+          db.collection('settings').doc('general').get()
         ]);
       } catch (e) {
         handleFirestoreError(e, OperationType.GET, 'orders/settings');
         throw e;
       }
-      
-      console.log(`Order found: ${orderDoc.exists}, Private Settings found: ${settingsDoc.exists}`);
-      
+
       if (!orderDoc.exists || !settingsDoc.exists) {
-        return res.status(404).json({ error: `Order (${orderDoc.exists}) or Private Settings (${settingsDoc.exists}) not found` });
-      }
-      
-      const order = orderDoc.data() as any;
-      const settings = settingsDoc.data() as any;
-      
-      if (!settings.certificateBase64 || !settings.certificatePassword) {
-        return res.status(400).json({ error: 'Fiscal settings (certificate) not configured' });
+        return res.status(404).json({ error: 'Order or Settings not found' });
       }
 
-      // 2. Prepare fiscal data (simplified for this example)
-      // In a real scenario, you would use a library like nfe-io or sped-nfe (if available for node)
-      // Here we simulate the process and return a mock success for now, 
-      // as full NFe implementation requires complex XML signing and SOAP requests.
-      
+      const order = orderDoc.data() as any;
+      const settings = settingsDoc.data() as any;
+
+      // 2. Validate order status
+      if (order.status !== 'FINISHED' && order.paymentStatus !== 'PAID') {
+        return res.status(400).json({ error: 'Order must be FINISHED and PAID before emitting invoice' });
+      }
+
+      // 3. Validate fiscal settings
+      if (!settings.certificateBase64 || !settings.certificatePassword) {
+        return res.status(400).json({ error: 'Fiscal settings (certificate and password) not configured' });
+      }
+
+      if (!settings.fiscalEnvironment || !settings.cscId || !settings.cscToken) {
+        return res.status(400).json({ error: 'Fiscal environment settings not configured' });
+      }
+
+      // 4. Validate fiscal data from settings
+      const requiredFiscalFields = ['CNPJ', 'IE', 'UF', 'xMun'];
+      const missingFields = requiredFiscalFields.filter(field => !settings[field]);
+
+      if (missingFields.length > 0) {
+        return res.status(400).json({ error: `Missing fiscal fields: ${missingFields.join(', ')}` });
+      }
+
+      // 5. Validate customer data in order
+      if (!order.customerName || !order.customerPhone) {
+        return res.status(400).json({ error: 'Order must have customer name and phone' });
+      }
+
+      // 6. Validate items have fiscal data
+      const itemsWithoutFiscal = (order.items || []).filter((item: any) => !item.ncm || !item.cfop);
+      if (itemsWithoutFiscal.length > 0) {
+        return res.status(400).json({ error: 'All items must have NCM and CFOP configured' });
+      }
+
       console.log(`Emitting NFC-e for order ${orderId} in ${settings.fiscalEnvironment} environment...`);
-      
-      // Simulation of a successful emission
+
+      // 7. Simulation of successful emission
       const mockProtocol = `351000${Math.floor(Math.random() * 1000000000)}`;
       const mockInvoiceUrl = `https://portal.fazenda.sp.gov.br/consultar-nfe?chave=${mockProtocol}`;
 
-      // 3. Update order with invoice info
+      // 8. Update order with invoice info
       try {
         await db.collection('orders').doc(orderId).update({
           invoiceEmitted: true,
+          invoiceProtocol: mockProtocol,
           invoiceUrl: mockInvoiceUrl,
+          invoiceEmittedAt: FieldValue.serverTimestamp(),
           updatedAt: FieldValue.serverTimestamp()
         });
       } catch (e) {
@@ -246,9 +270,9 @@ async function startServer() {
         throw e;
       }
 
-      res.json({ 
-        success: true, 
-        protocol: mockProtocol, 
+      res.json({
+        success: true,
+        protocol: mockProtocol,
         invoiceUrl: mockInvoiceUrl,
         message: `NFC-e emitida com sucesso em ambiente de ${settings.fiscalEnvironment === 'producao' ? 'PRODUÇÃO' : 'HOMOLOGAÇÃO'}.`
       });
