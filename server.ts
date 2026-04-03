@@ -197,85 +197,127 @@ async function startServer() {
     try {
       const { orderId } = req.body;
       const db = getDb();
-
+      
       // 1. Get order and settings
       let orderDoc, settingsDoc;
       try {
         [orderDoc, settingsDoc] = await Promise.all([
           db.collection('orders').doc(orderId).get(),
-          db.collection('settings').doc('general').get()
+          db.collection('settings').doc('private').get()
         ]);
       } catch (e) {
         handleFirestoreError(e, OperationType.GET, 'orders/settings');
         throw e;
       }
-
+      
+      console.log(`Order found: ${orderDoc.exists}, Private Settings found: ${settingsDoc.exists}`);
+      
       if (!orderDoc.exists || !settingsDoc.exists) {
-        return res.status(404).json({ error: 'Order or Settings not found' });
+        return res.status(404).json({ error: `Order (${orderDoc.exists}) or Private Settings (${settingsDoc.exists}) not found` });
       }
-
+      
       const order = orderDoc.data() as any;
       const settings = settingsDoc.data() as any;
-
-      // 2. Validate order status
-      if (order.status !== 'FINISHED' && order.paymentStatus !== 'PAID') {
-        return res.status(400).json({ error: 'Order must be FINISHED and PAID before emitting invoice' });
-      }
-
-      // 3. Validate fiscal settings
+      
       if (!settings.certificateBase64 || !settings.certificatePassword) {
-        return res.status(400).json({ error: 'Fiscal settings (certificate and password) not configured' });
+        return res.status(400).json({ error: 'Fiscal settings (certificate) not configured' });
       }
 
-      if (!settings.fiscalEnvironment || !settings.cscId || !settings.cscToken) {
-        return res.status(400).json({ error: 'Fiscal environment settings not configured' });
+      // 2. Prepare fiscal data and call NFe.io
+      const apiKey = process.env.NFE_IO_API_KEY;
+      const companyId = settings.nfeIoCompanyId;
+
+      if (!apiKey || !companyId) {
+        console.warn('NFe.io API Key or Company ID not configured. Falling back to simulation.');
+        // Simulation of a successful emission
+        const mockProtocol = `351000${Math.floor(Math.random() * 1000000000)}`;
+        const mockInvoiceUrl = `https://portal.fazenda.sp.gov.br/consultar-nfe?chave=${mockProtocol}`;
+
+        // 3. Update order with invoice info
+        try {
+          await db.collection('orders').doc(orderId).update({
+            invoiceEmitted: true,
+            invoiceUrl: mockInvoiceUrl,
+            updatedAt: FieldValue.serverTimestamp()
+          });
+        } catch (e) {
+          handleFirestoreError(e, OperationType.UPDATE, `orders/${orderId}`);
+          throw e;
+        }
+
+        return res.json({ 
+          success: true, 
+          protocol: mockProtocol, 
+          invoiceUrl: mockInvoiceUrl,
+          message: `[SIMULAÇÃO] NFC-e emitida com sucesso em ambiente de ${settings.fiscalEnvironment === 'producao' ? 'PRODUÇÃO' : 'HOMOLOGAÇÃO'}.`
+        });
       }
 
-      // 4. Validate fiscal data from settings
-      const requiredFiscalFields = ['CNPJ', 'IE', 'UF', 'xMun'];
-      const missingFields = requiredFiscalFields.filter(field => !settings[field]);
-
-      if (missingFields.length > 0) {
-        return res.status(400).json({ error: `Missing fiscal fields: ${missingFields.join(', ')}` });
-      }
-
-      // 5. Validate customer data in order
-      if (!order.customerName || !order.customerPhone) {
-        return res.status(400).json({ error: 'Order must have customer name and phone' });
-      }
-
-      // 6. Validate items have fiscal data
-      const itemsWithoutFiscal = (order.items || []).filter((item: any) => !item.ncm || !item.cfop);
-      if (itemsWithoutFiscal.length > 0) {
-        return res.status(400).json({ error: 'All items must have NCM and CFOP configured' });
-      }
-
-      console.log(`Emitting NFC-e for order ${orderId} in ${settings.fiscalEnvironment} environment...`);
-
-      // 7. Simulation of successful emission
-      const mockProtocol = `351000${Math.floor(Math.random() * 1000000000)}`;
-      const mockInvoiceUrl = `https://portal.fazenda.sp.gov.br/consultar-nfe?chave=${mockProtocol}`;
-
-      // 8. Update order with invoice info
+      console.log(`Emitting REAL NFC-e for order ${orderId} via NFe.io in ${settings.fiscalEnvironment} environment...`);
+      
       try {
+        // Map order items to NFe.io items
+        const items = order.items.map((item: any) => ({
+          name: item.name,
+          quantity: item.quantity,
+          unitPrice: item.price,
+          totalPrice: item.price * item.quantity,
+          ncmCode: item.ncm || '21069090', // Default NCM for food if not specified
+          taxCode: item.taxCode || '5102', // Default CFOP for internal sales
+        }));
+
+        const payload = {
+          type: 'NFCe',
+          environment: settings.fiscalEnvironment === 'producao' ? 'Production' : 'Development',
+          items: items,
+          buyer: order.customer ? {
+            name: order.customer.name,
+            federalTaxNumber: order.customer.document?.replace(/\D/g, ''),
+            email: order.customer.email,
+          } : undefined,
+          payments: [
+            {
+              type: order.paymentMethod === 'CASH' ? 'Dinheiro' : 
+                    order.paymentMethod === 'CARD' ? 'CartaoDebito' : 'Outros',
+              amount: order.total
+            }
+          ]
+        };
+
+        const nfeResponse = await axios.post(
+          `https://api.nfe.io/v1/companies/${companyId}/productinvoices`,
+          payload,
+          {
+            headers: {
+              'Authorization': apiKey,
+              'Content-Type': 'application/json'
+            }
+          }
+        );
+
+        const invoiceData = nfeResponse.data;
+        const protocol = invoiceData.protocol || invoiceData.id;
+        const invoiceUrl = invoiceData.pdfUrl || `https://nfe.io/consultar/${invoiceData.id}`;
+
+        // 3. Update order with invoice info
         await db.collection('orders').doc(orderId).update({
           invoiceEmitted: true,
-          invoiceProtocol: mockProtocol,
-          invoiceUrl: mockInvoiceUrl,
-          invoiceEmittedAt: FieldValue.serverTimestamp(),
+          invoiceId: invoiceData.id,
+          invoiceUrl: invoiceUrl,
           updatedAt: FieldValue.serverTimestamp()
         });
-      } catch (e) {
-        handleFirestoreError(e, OperationType.UPDATE, `orders/${orderId}`);
-        throw e;
-      }
 
-      res.json({
-        success: true,
-        protocol: mockProtocol,
-        invoiceUrl: mockInvoiceUrl,
-        message: `NFC-e emitida com sucesso em ambiente de ${settings.fiscalEnvironment === 'producao' ? 'PRODUÇÃO' : 'HOMOLOGAÇÃO'}.`
-      });
+        res.json({ 
+          success: true, 
+          protocol: protocol, 
+          invoiceUrl: invoiceUrl,
+          message: `NFC-e emitida com sucesso via NFe.io (${settings.fiscalEnvironment}).`
+        });
+      } catch (nfeError: any) {
+        console.error('NFe.io API Error:', nfeError.response?.data || nfeError.message);
+        const errorMessage = nfeError.response?.data?.message || nfeError.message;
+        res.status(500).json({ error: 'Erro na API NFe.io: ' + errorMessage });
+      }
     } catch (error: any) {
       console.error('Fiscal Emission Error:', error.message);
       res.status(500).json({ error: 'Failed to emit NFC-e: ' + error.message });

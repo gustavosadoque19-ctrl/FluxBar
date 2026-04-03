@@ -151,6 +151,7 @@ service cloud.firestore {
              (!('ifoodClientId' in data) || data.ifoodClientId is string) &&
              (!('ifoodClientSecret' in data) || data.ifoodClientSecret is string) &&
              (!('fiscalEnvironment' in data) || data.fiscalEnvironment in ['homologacao', 'producao']) &&
+             (!('nfeIoCompanyId' in data) || data.nfeIoCompanyId is string) &&
              (!('cscId' in data) || data.cscId is string) &&
              (!('cscToken' in data) || data.cscToken is string) &&
              (!('certificateBase64' in data) || data.certificateBase64 is string) &&

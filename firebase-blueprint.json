@@ -53,11 +53,7 @@
               "timestamp": { "type": "string", "format": "date-time" }
             }
           }
-        },
-        "invoiceEmitted": { "type": "boolean" },
-        "invoiceProtocol": { "type": "string" },
-        "invoiceUrl": { "type": "string" },
-        "invoiceEmittedAt": { "type": "string", "format": "date-time" }
+        }
       },
       "required": ["items", "status", "paymentStatus", "subtotal", "total", "type", "createdAt"]
     },
@@ -77,8 +73,6 @@
         "imageUrl": { "type": "string" },
         "imageFit": { "type": "string", "enum": ["cover", "contain"] },
         "barcode": { "type": "string" },
-        "ncm": { "type": "string" },
-        "cfop": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
@@ -152,19 +146,7 @@
             "textColor": { "type": "string" },
             "logoUrl": { "type": "string" }
           }
-        },
-        "fiscalEnvironment": { "type": "string", "enum": ["homologacao", "producao"] },
-        "certificateBase64": { "type": "string" },
-        "certificatePassword": { "type": "string" },
-        "cscId": { "type": "string" },
-        "cscToken": { "type": "string" },
-        "CNPJ": { "type": "string" },
-        "IE": { "type": "string" },
-        "UF": { "type": "string" },
-        "CEP": { "type": "string" },
-        "xMun": { "type": "string" },
-        "ifoodClientId": { "type": "string" },
-        "ifoodClientSecret": { "type": "string" }
+        }
       },
       "required": ["restaurantName", "serviceFee"]
     },

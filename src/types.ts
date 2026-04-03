@@ -135,6 +135,7 @@ export interface RestaurantSettings {
   ifoodClientSecret?: string;
   // Fiscal Integration (Option 2)
   fiscalEnvironment?: 'homologacao' | 'producao';
+  nfeIoCompanyId?: string;
   cscId?: string;
   cscToken?: string;
   certificateBase64?: string;
