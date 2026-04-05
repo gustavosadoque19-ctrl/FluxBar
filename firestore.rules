@@ -71,14 +71,19 @@ service cloud.firestore {
       allow write: if isManager();
     }
 
-    match /settings/general {
-      allow read: if true;
-      allow write: if isManager();
+    match /settings/private {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
     }
 
-    // Default deny
+    match /settings/general {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Default allow for authenticated users
     match /{document=**} {
-      allow read, write: if isAdmin();
+      allow read, write: if isAuthenticated();
     }
   }
 }
