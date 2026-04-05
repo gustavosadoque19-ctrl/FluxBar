@@ -1,4 +1,5 @@
 // Importação de módulos necessários para o servidor
+console.log("Iniciando server.ts...");
 import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
@@ -39,18 +40,54 @@ if (fs.existsSync(firebaseConfigPath)) {
 }
 
 // Função auxiliar para obter a instância correta do Firestore (banco de dados)
+let currentDb: any = null;
+
 const getDb = () => {
+  if (currentDb) return currentDb;
+  
   try {
     // Se houver um ID de banco de dados específico no config, usa ele
     if (firebaseConfig?.firestoreDatabaseId) {
-      return getFirestore(firebaseConfig.firestoreDatabaseId);
+      console.log(`Tentando conectar ao banco de dados Firestore: ${firebaseConfig.firestoreDatabaseId}`);
+      currentDb = getFirestore(firebaseConfig.firestoreDatabaseId);
+    } else {
+      console.log("Conectando ao banco de dados Firestore padrão (default)");
+      currentDb = getFirestore();
     }
-    return getFirestore();
+    return currentDb;
   } catch (e: any) {
     console.error("Erro ao obter instância do Firestore:", e.message);
-    return getFirestore();
+    currentDb = getFirestore();
+    return currentDb;
   }
 };
+
+// Função para testar a conexão com o Firestore no início do servidor e tentar fallback
+async function testBackendConnection() {
+  let db = getDb();
+  try {
+    console.log("Testando conexão com o Firestore...");
+    // Tenta uma leitura simples para verificar permissões
+    await db.collection('settings').limit(1).get();
+    console.log("Conexão com o Firestore estabelecida com sucesso!");
+  } catch (error: any) {
+    console.error("FALHA NA CONEXÃO COM O FIRESTORE (BACKEND):");
+    handleFirestoreError(error, OperationType.LIST, 'settings');
+    
+    // Se falhar com permissão negada no banco nomeado, tenta o banco padrão (default)
+    if ((error.code === 7 || error.message?.includes('PERMISSION_DENIED')) && firebaseConfig?.firestoreDatabaseId) {
+      console.warn("Tentando FALLBACK para o banco de dados '(default)'...");
+      try {
+        const defaultDb = getFirestore();
+        await defaultDb.collection('settings').limit(1).get();
+        console.log("FALLBACK SUCEDIDO: Conectado ao banco de dados '(default)'.");
+        currentDb = defaultDb; // Atualiza a instância global
+      } catch (fallbackError: any) {
+        console.error("FALHA NO FALLBACK PARA '(default)':", fallbackError.message);
+      }
+    }
+  }
+}
 
 // Tipos de operações para logs de erro
 enum OperationType {
@@ -205,7 +242,7 @@ async function startServer() {
     }
   });
 
-  // Rota para Emissão de NFC-e (Integração Fiscal com NFe.io)
+  // Rota para Emissão de NFC-e (Integração Fiscal com Focus NFe)
   app.post("/api/fiscal/emitir-nfc-e", async (req, res) => {
     try {
       const { orderId } = req.body;
@@ -235,13 +272,16 @@ async function startServer() {
         return res.status(400).json({ error: 'Certificado digital não configurado' });
       }
 
-      // 2. Prepara os dados e chama a API da NFe.io
-      const apiKey = process.env.NFE_IO_API_KEY;
-      const companyId = settings.nfeIoCompanyId;
+      // 2. Prepara os dados e chama a API da Focus NFe
+      const apiToken = process.env.FOCUS_NFE_TOKEN;
+      const isProduction = settings.fiscalEnvironment === 'producao';
+      const baseUrl = isProduction 
+        ? 'https://api.focusnfe.com.br' 
+        : 'https://homologacao.focusnfe.com.br';
 
       // Se não houver chave de API, cai no modo de simulação
-      if (!apiKey || !companyId) {
-        console.warn('Chave API NFe.io ou Company ID não configurados. Usando simulação.');
+      if (!apiToken) {
+        console.warn('Token Focus NFe não configurado. Usando simulação.');
         const mockProtocol = `351000${Math.floor(Math.random() * 1000000000)}`;
         const mockInvoiceUrl = `https://portal.fazenda.sp.gov.br/consultar-nfe?chave=${mockProtocol}`;
 
@@ -260,75 +300,80 @@ async function startServer() {
           success: true, 
           protocol: mockProtocol, 
           invoiceUrl: mockInvoiceUrl,
-          message: `[SIMULAÇÃO] NFC-e emitida com sucesso (${settings.fiscalEnvironment}).`
+          message: `[SIMULAÇÃO] NFC-e emitida com sucesso via Focus NFe (${settings.fiscalEnvironment}).`
         });
       }
 
-      console.log(`Emitindo NFC-e REAL para o pedido ${orderId} via NFe.io...`);
+      console.log(`Emitindo NFC-e REAL para o pedido ${orderId} via Focus NFe...`);
       
       try {
-        // Mapeia itens do pedido para o formato da NFe.io
-        const items = order.items.map((item: any) => ({
-          name: item.name,
-          quantity: item.quantity,
-          unitPrice: item.price,
-          totalPrice: item.price * item.quantity,
-          ncmCode: item.ncm || '21069090', // NCM padrão para alimentos
-          taxCode: item.taxCode || '5102', // CFOP padrão para venda interna
+        // Mapeia itens do pedido para o formato da Focus NFe
+        const items = order.items.map((item: any, index: number) => ({
+          numero_item: (index + 1).toString(),
+          codigo_produto: item.productId || item.id,
+          descricao: item.name,
+          unidade_comercial: 'UN',
+          quantidade_comercial: item.quantity,
+          valor_unitario_comercial: item.price,
+          valor_bruto: item.price * item.quantity,
+          codigo_ncm: item.ncm || '21069090',
+          cfop: item.cfop || '5102',
+          icms_origem: item.icmsOrigin || '0',
+          icms_situacao_tributaria: item.icmsSituation || '102',
+          valor_total: item.price * item.quantity
         }));
 
         const payload = {
-          type: 'NFCe',
-          environment: settings.fiscalEnvironment === 'producao' ? 'Production' : 'Development',
+          data_emissao: new Date().toISOString(),
+          natureza_operacao: 'Venda de mercadoria',
+          presenca_comprador: 1, // Operação presencial
+          modalidade_frete: 9, // Sem frete
           items: items,
-          buyer: order.customer ? {
-            name: order.customer.name,
-            federalTaxNumber: order.customer.document?.replace(/\D/g, ''),
-            email: order.customer.email,
-          } : undefined,
-          payments: [
+          formas_pagamento: [
             {
-              type: order.paymentMethod === 'CASH' ? 'Dinheiro' : 
-                    order.paymentMethod === 'CARD' ? 'CartaoDebito' : 'Outros',
-              amount: order.total
+              forma_pagamento: order.paymentMethod === 'CASH' ? '01' : 
+                               order.paymentMethod === 'CARD' ? '03' : 
+                               order.paymentMethod === 'PIX' ? '17' : '99',
+              valor_pagamento: order.total
             }
           ]
         };
 
-        // Chamada real para a API da NFe.io
+        // Chamada real para a API da Focus NFe
+        // A Focus NFe usa Basic Auth com o token como username e senha vazia
+        const auth = Buffer.from(`${apiToken}:`).toString('base64');
+        
         const nfeResponse = await axios.post(
-          `https://api.nfe.io/v1/companies/${companyId}/productinvoices`,
+          `${baseUrl}/v2/nfce?ref=${orderId}`,
           payload,
           {
             headers: {
-              'Authorization': apiKey,
+              'Authorization': `Basic ${auth}`,
               'Content-Type': 'application/json'
             }
           }
         );
 
         const invoiceData = nfeResponse.data;
-        const protocol = invoiceData.protocol || invoiceData.id;
-        const invoiceUrl = invoiceData.pdfUrl || `https://nfe.io/consultar/${invoiceData.id}`;
-
+        
         // Atualiza o pedido com as informações da nota emitida
         await db.collection('orders').doc(orderId).update({
           invoiceEmitted: true,
-          invoiceId: invoiceData.id,
-          invoiceUrl: invoiceUrl,
+          invoiceId: invoiceData.id || invoiceData.protocolo,
+          invoiceUrl: invoiceData.caminho_xml_nota_fiscal || invoiceData.caminho_danfe,
           updatedAt: FieldValue.serverTimestamp()
         });
 
         res.json({ 
           success: true, 
-          protocol: protocol, 
-          invoiceUrl: invoiceUrl,
-          message: `NFC-e emitida com sucesso via NFe.io (${settings.fiscalEnvironment}).`
+          protocol: invoiceData.protocolo, 
+          invoiceUrl: invoiceData.caminho_danfe,
+          message: `NFC-e emitida com sucesso via Focus NFe (${settings.fiscalEnvironment}).`
         });
       } catch (nfeError: any) {
-        console.error('Erro API NFe.io:', nfeError.response?.data || nfeError.message);
+        console.error('Erro API Focus NFe:', nfeError.response?.data || nfeError.message);
         const errorMessage = nfeError.response?.data?.message || nfeError.message;
-        res.status(500).json({ error: 'Erro na API NFe.io: ' + errorMessage });
+        res.status(500).json({ error: 'Erro na API Focus NFe: ' + errorMessage });
       }
     } catch (error: any) {
       console.error('Erro de Emissão Fiscal:', error.message);
@@ -390,8 +435,9 @@ async function startServer() {
   }
 
   // Inicia o servidor na porta 3000
-  app.listen(PORT, "0.0.0.0", () => {
+  app.listen(PORT, "0.0.0.0", async () => {
     console.log(`Servidor rodando em http://localhost:${PORT}`);
+    await testBackendConnection(); // Testa a conexão ao iniciar
   });
 }
 

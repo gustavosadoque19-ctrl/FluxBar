@@ -5,6 +5,7 @@
 
 import * as React from 'react';
 import { useState, useEffect, createContext, useContext, ReactNode, useRef, ChangeEvent } from 'react';
+console.log("App.tsx carregado.");
 // Importação de ícones da biblioteca lucide-react
 import { 
   LayoutDashboard, 
@@ -48,6 +49,11 @@ import {
   Minimize2,
   X,
   RefreshCw,
+  QrCode,
+  Star,
+  Check,
+  Copy,
+  Download,
   ChevronLeft,
   ChevronRight,
   UserPlus
@@ -213,7 +219,152 @@ function hexToRgb(hex: string) {
   } : null;
 }
 
+// Utilitário para gerar o código BRCode do PIX (Copia e Cola)
+function generatePixBRCode(key: string, amount: number, name: string, city: string, txid: string = '***') {
+  const formatField = (id: string, value: string) => {
+    const len = value.length.toString().padStart(2, '0');
+    return `${id}${len}${value}`;
+  };
+
+  const merchantAccountInfo = formatField('00', 'BR.GOV.BCB.PIX') + formatField('01', key);
+  const payload = [
+    formatField('00', '01'), // Payload Format Indicator
+    formatField('26', merchantAccountInfo), // Merchant Account Information
+    formatField('52', '0000'), // Merchant Category Code
+    formatField('53', '986'), // Transaction Currency (BRL)
+    formatField('54', amount.toFixed(2)), // Transaction Amount
+    formatField('58', 'BR'), // Country Code
+    formatField('59', name.substring(0, 25)), // Merchant Name
+    formatField('60', city.substring(0, 15)), // Merchant City
+    formatField('62', formatField('05', txid)), // Additional Data Field (TXID)
+  ].join('');
+
+  const crc16 = (data: string) => {
+    let crc = 0xFFFF;
+    for (let i = 0; i < data.length; i++) {
+      crc ^= data.charCodeAt(i) << 8;
+      for (let j = 0; j < 8; j++) {
+        if (crc & 0x8000) crc = (crc << 1) ^ 0x1021;
+        else crc <<= 1;
+      }
+    }
+    return (crc & 0xFFFF).toString(16).toUpperCase().padStart(4, '0');
+  };
+
+  const finalPayload = payload + '6304';
+  return finalPayload + crc16(finalPayload);
+}
+
 // --- Components ---
+
+function SurveyView({ orderId, onComplete }: { orderId?: string, onComplete: () => void }) {
+  const [rating, setRating] = useState(0);
+  const [comment, setComment] = useState('');
+  const [name, setName] = useState('');
+  const [submitted, setSubmitted] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (rating === 0) return;
+    setLoading(true);
+    try {
+      await addDoc(collection(db, 'surveys'), {
+        orderId: orderId || 'anonymous',
+        rating,
+        comment,
+        customerName: name,
+        createdAt: serverTimestamp()
+      });
+      setSubmitted(true);
+      setTimeout(onComplete, 3000);
+    } catch (error) {
+      console.error("Error submitting survey:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (submitted) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-secondary p-6 text-center">
+        <motion.div 
+          initial={{ scale: 0.9, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          className="max-w-md w-full bg-background border border-primary p-12 shadow-[20px_20px_0px_0px_var(--primary)]"
+        >
+          <div className="w-20 h-20 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-6">
+            <Check size={40} />
+          </div>
+          <h2 className="font-serif italic text-3xl mb-4">Obrigado!</h2>
+          <p className="opacity-60">Sua avaliação é muito importante para nós.</p>
+        </motion.div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-screen flex items-center justify-center bg-secondary p-6 font-sans">
+      <div className="max-w-md w-full bg-background border border-primary p-10 shadow-[20px_20px_0px_0px_var(--primary)]">
+        <div className="text-center mb-10">
+          <h1 className="font-serif italic text-4xl tracking-tight mb-2">Sua Opinião</h1>
+          <p className="text-[10px] uppercase tracking-[0.2em] opacity-40 font-bold">Pesquisa de Satisfação</p>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-8">
+          <div className="text-center">
+            <label className="block text-[10px] uppercase font-bold tracking-widest mb-6 opacity-60">Como foi sua experiência?</label>
+            <div className="flex justify-center gap-4">
+              {[1, 2, 3, 4, 5].map((star) => (
+                <button
+                  key={star}
+                  type="button"
+                  onClick={() => setRating(star)}
+                  className={cn(
+                    "transition-all transform hover:scale-110",
+                    rating >= star ? "text-yellow-400" : "text-gray-200"
+                  )}
+                >
+                  <Star size={32} fill={rating >= star ? "currentColor" : "none"} />
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-[10px] uppercase font-bold tracking-widest mb-2 opacity-60">Seu Nome (Opcional)</label>
+            <input 
+              type="text" 
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="w-full bg-primary/5 border border-primary p-4 focus:outline-none focus:ring-2 focus:ring-primary/10 transition-all"
+              placeholder="Ex: João Silva"
+            />
+          </div>
+
+          <div>
+            <label className="block text-[10px] uppercase font-bold tracking-widest mb-2 opacity-60">Comentário</label>
+            <textarea 
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
+              rows={3}
+              className="w-full bg-primary/5 border border-primary p-4 focus:outline-none focus:ring-2 focus:ring-primary/10 transition-all resize-none"
+              placeholder="Conte-nos mais..."
+            />
+          </div>
+
+          <button 
+            type="submit"
+            disabled={loading || rating === 0}
+            className="w-full bg-primary text-secondary py-4 font-bold uppercase tracking-widest flex items-center justify-center gap-3 hover:opacity-90 transition-opacity disabled:opacity-50"
+          >
+            {loading ? 'Enviando...' : 'Enviar Avaliação'}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
 
 function LoginScreen({ onLogin, onRegister, onResetPassword }: { 
   onLogin: (email?: string, password?: string) => Promise<void>,
@@ -497,7 +648,7 @@ function useAuth() {
 
 // --- Main App Component ---
 
-type Tab = 'dashboard' | 'tables' | 'delivery' | 'menu' | 'waiters' | 'settings' | 'public_menu' | 'kitchen' | 'reports' | 'cashier' | 'whatsapp' | 'users';
+type Tab = 'dashboard' | 'tables' | 'delivery' | 'menu' | 'waiters' | 'settings' | 'public_menu' | 'kitchen' | 'reports' | 'cashier' | 'whatsapp' | 'users' | 'survey';
 
 const DEFAULT_THEME = {
   primaryColor: '#141414',
@@ -598,6 +749,16 @@ function AppContent() {
     return params.get('mode') === 'menu';
   });
 
+  const [isSurveyMode, setIsSurveyMode] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('mode') === 'survey';
+  });
+
+  const [surveyOrderId, setSurveyOrderId] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('orderId') || undefined;
+  });
+
   // Toast & Confirm states
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
   const [confirmModal, setConfirmModal] = useState<{ 
@@ -681,7 +842,37 @@ function AppContent() {
   const [userWantsNotifications, setUserWantsNotifications] = useState(() => {
     return localStorage.getItem('userWantsNotifications') !== 'false';
   });
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const isFirstLoad = useRef(true);
+
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e: any) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+  }, []);
+
+  const handleInstallPWA = async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') {
+      setDeferredPrompt(null);
+    }
+  };
+
+  const testNotification = () => {
+    if (Notification.permission === 'granted') {
+      new Notification('Teste de Notificação', {
+        body: 'Se você está vendo isso, as notificações estão funcionando corretamente!',
+        icon: '/icon-192x192.svg'
+      });
+    } else {
+      showToast("Permissão de notificação não concedida.", "error");
+    }
+  };
 
   const toggleNotifications = async () => {
     if (!('Notification' in window)) {
@@ -951,6 +1142,32 @@ function AppContent() {
     );
   }
 
+  if (isSurveyMode) {
+    return (
+      <div className="min-h-screen bg-[#E4E3E0]">
+        <SurveyView 
+          orderId={surveyOrderId} 
+          onComplete={() => {
+            const url = new URL(window.location.href);
+            url.searchParams.delete('mode');
+            url.searchParams.delete('orderId');
+            window.history.replaceState({}, '', url.toString());
+            setIsSurveyMode(false);
+          }}
+        />
+        {toast && (
+          <div className={cn(
+            "fixed bottom-20 left-1/2 -translate-x-1/2 px-6 py-3 border border-[#141414] text-[10px] font-bold uppercase tracking-widest z-[200] shadow-[4px_4px_0px_0px_rgba(20,20,20,1)]",
+            toast.type === 'success' ? "bg-green-500 text-white" : 
+            toast.type === 'error' ? "bg-red-500 text-white" : "bg-white text-[#141414]"
+          )}>
+            {toast.message}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   if (!user) {
     return <LoginScreen onLogin={login} onRegister={register} onResetPassword={resetPassword} />;
   }
@@ -1166,6 +1383,9 @@ function AppContent() {
                   showToast={showToast}
                   userWantsNotifications={userWantsNotifications}
                   onToggleNotifications={toggleNotifications}
+                  testNotification={testNotification}
+                  deferredPrompt={deferredPrompt}
+                  handleInstallPWA={handleInstallPWA}
                 />
               )}
               {activeTab === 'kitchen' && (
@@ -2221,7 +2441,10 @@ function SettingsView({
   onOpenPublicMenu, 
   showToast,
   userWantsNotifications,
-  onToggleNotifications
+  onToggleNotifications,
+  testNotification,
+  deferredPrompt,
+  handleInstallPWA
 }: { 
   user: User, 
   logout: () => void, 
@@ -2229,7 +2452,10 @@ function SettingsView({
   onOpenPublicMenu: () => void, 
   showToast: (message: string, type?: 'success' | 'error' | 'info') => void,
   userWantsNotifications: boolean,
-  onToggleNotifications: () => void
+  onToggleNotifications: () => void,
+  testNotification: () => void,
+  deferredPrompt: any,
+  handleInstallPWA: () => void
 }) {
   const [localSettings, setLocalSettings] = useState<Partial<RestaurantSettings>>(settings || {});
   const [saving, setSaving] = useState(false);
@@ -2817,12 +3043,12 @@ function SettingsView({
                         </select>
                       </div>
                       <div>
-                        <label className="text-[10px] font-bold uppercase tracking-widest opacity-40 block mb-1">NFe.io Company ID</label>
+                        <label className="text-[10px] font-bold uppercase tracking-widest opacity-40 block mb-1">Focus NFe API Token</label>
                         <input 
                           type="text" 
-                          value={localSettings.nfeIoCompanyId || ''}
-                          onChange={(e) => setLocalSettings(prev => ({ ...prev, nfeIoCompanyId: e.target.value }))}
-                          placeholder="ID da Empresa no NFe.io"
+                          value={localSettings.focusNfeToken || ''}
+                          onChange={(e) => setLocalSettings(prev => ({ ...prev, focusNfeToken: e.target.value }))}
+                          placeholder="Token da API Focus NFe"
                           className="w-full border border-primary p-2 text-sm bg-background"
                         />
                       </div>
@@ -2977,7 +3203,43 @@ function SettingsView({
                     {userWantsNotifications && Notification.permission === 'granted' ? 'Desativar' : 'Ativar'}
                   </button>
                 </div>
+                {userWantsNotifications && Notification.permission === 'granted' && (
+                  <button 
+                    onClick={testNotification}
+                    className="w-full mt-2 py-2 text-[10px] font-bold uppercase tracking-widest border border-dashed border-[#141414] hover:bg-[#141414]/5 transition-colors"
+                  >
+                    Testar Notificação
+                  </button>
+                )}
+                {Notification.permission === 'denied' && (
+                  <p className="text-[8px] text-red-500 font-bold uppercase mt-2">
+                    As notificações foram bloqueadas pelo navegador. Por favor, redefina as permissões nas configurações do site.
+                  </p>
+                )}
               </section>
+
+              {deferredPrompt && (
+                <section className="space-y-4">
+                  <h3 className="text-[10px] font-bold uppercase tracking-widest opacity-50">App Instalável (PWA)</h3>
+                  <div className="bg-white border border-[#141414] p-6 flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <div className="p-3 border border-[#141414] bg-[#141414] text-white">
+                        <Download size={20} />
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold uppercase tracking-tight">Instalar FLUXBar</p>
+                        <p className="text-[10px] opacity-50">Use como um aplicativo nativo</p>
+                      </div>
+                    </div>
+                    <button 
+                      onClick={handleInstallPWA}
+                      className="px-4 py-2 text-[10px] font-bold uppercase tracking-widest bg-[#141414] text-white hover:opacity-90 transition-opacity"
+                    >
+                      Instalar
+                    </button>
+                  </div>
+                </section>
+              )}
 
               <section className="space-y-4">
                 <h3 className="text-[10px] font-bold uppercase tracking-widest opacity-50">Configurações de Impressão</h3>
@@ -3759,7 +4021,12 @@ function OrderModal({ isOpen, onClose, tables, products, waiters, settings, init
             name: p.name,
             price: p.price,
             cost: p.cost,
-            quantity: sp.quantity
+            quantity: sp.quantity,
+            ncm: p.ncm || '',
+            cest: p.cest || '',
+            cfop: p.cfop || '',
+            icmsOrigin: p.icmsOrigin || '0',
+            icmsSituation: p.icmsSituation || '102'
           };
         }),
         subtotal,
@@ -4186,7 +4453,12 @@ function PublicMenuView({ products, settings, onBack, showToast, tables }: { pro
             name: p.name,
             price: p.price,
             cost: p.cost || 0,
-            quantity: item.quantity
+            quantity: item.quantity,
+            ncm: p.ncm || '',
+            cest: p.cest || '',
+            cfop: p.cfop || '',
+            icmsOrigin: p.icmsOrigin || '0',
+            icmsSituation: p.icmsSituation || '102'
           };
         }),
         subtotal,
@@ -4738,10 +5010,9 @@ function OrderDetailsModal({ isOpen, onClose, orderId, products, settings, table
 
   // Função para emitir a NFC-e (Nota Fiscal de Consumidor Eletrônica)
   const handleEmitInvoice = async () => {
-    if (!order) return; // Se não houver pedido, não faz nada
-    setLoading(true); // Ativa o estado de carregamento
+    if (!order) return;
+    setLoading(true);
     try {
-      // Faz uma chamada para o nosso backend que processa a emissão fiscal
       const response = await fetch('/api/fiscal/emitir-nfc-e', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -4751,17 +5022,14 @@ function OrderDetailsModal({ isOpen, onClose, orderId, products, settings, table
       const data = await response.json();
       
       if (data.success) {
-        // Exibe mensagem de sucesso vinda do servidor
         showToast(data.message, "success");
       } else {
-        // Exibe erro específico retornado pela API fiscal
         showToast(data.error || "Erro ao emitir nota fiscal", "error");
       }
     } catch (error) {
-      // Trata erros de conexão com o servidor
       showToast("Erro na comunicação com o servidor", "error");
     } finally {
-      setLoading(false); // Desativa o estado de carregamento
+      setLoading(false);
     }
   };
 
@@ -4769,6 +5037,8 @@ function OrderDetailsModal({ isOpen, onClose, orderId, products, settings, table
     if (!order) return;
     const printWindow = window.open('', '_blank');
     if (!printWindow) return;
+
+    const table = tables.find(t => t.id === order.tableId);
 
     const itemsHtml = order.items.map(item => `
       <tr>
@@ -4818,6 +5088,134 @@ function OrderDetailsModal({ isOpen, onClose, orderId, products, settings, table
             <p style="display: flex; justify-content: space-between;"><span>Taxa (${settings?.serviceFee}%):</span> <span>R$ ${order.serviceFee.toFixed(2)}</span></p>
             <p style="display: flex; justify-content: space-between; font-size: 16px; margin-top: 5px;"><span>TOTAL:</span> <span>R$ ${order.total.toFixed(2)}</span></p>
           </div>
+          <div class="footer">
+            <p>Obrigado pela preferência!</p>
+            <p>${settings?.address || ''}</p>
+          </div>
+          <script>
+            window.onload = () => {
+              window.print();
+              setTimeout(() => window.close(), 500);
+            };
+          </script>
+        </body>
+      </html>
+    `;
+
+    printWindow.document.write(html);
+    printWindow.document.close();
+  };
+
+  const [isPixModalOpen, setIsPixModalOpen] = useState(false);
+
+  const handlePrintReceipt = () => {
+    if (!order) return;
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
+
+    const table = tables.find(t => t.id === order.tableId);
+    const surveyUrl = `${window.location.origin}/?mode=survey&orderId=${order.id}`;
+    const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(surveyUrl)}`;
+
+    const itemsHtml = order.items.map(item => `
+      <tr>
+        <td style="padding: 5px 0;">${item.name} x${item.quantity}</td>
+        <td style="text-align: right; padding: 5px 0;">R$ ${(item.price * item.quantity).toFixed(2)}</td>
+      </tr>
+    `).join('');
+
+    const paymentsHtml = order.payments?.map(p => `
+      <p style="display: flex; justify-content: space-between; font-size: 11px;">
+        <span>${p.method === 'CASH' ? 'Dinheiro' : p.method === 'CARD' ? 'Cartão' : 'PIX'}:</span>
+        <span>R$ ${p.amount.toFixed(2)}</span>
+      </p>
+    `).join('') || '';
+
+    const html = `
+      <html>
+        <head>
+          <title>Recibo #${order.id.slice(0, 8)}</title>
+          <style>
+            body { font-family: 'Courier New', Courier, monospace; width: 80mm; padding: 10px; color: #000; }
+            h2 { text-align: center; margin-bottom: 5px; text-transform: uppercase; border-bottom: 1px dashed #000; padding-bottom: 10px; }
+            h3 { text-align: center; margin: 10px 0; text-transform: uppercase; font-size: 14px; }
+            p { margin: 4px 0; font-size: 12px; }
+            table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+            .total { border-top: 1px dashed #000; margin-top: 10px; padding-top: 10px; font-weight: bold; }
+            .payments { margin-top: 5px; border-top: 1px dotted #000; padding-top: 5px; }
+            .footer { text-align: center; margin-top: 20px; font-size: 10px; border-top: 1px dashed #000; padding-top: 10px; }
+            .divider { border-top: 1px dashed #000; margin: 10px 0; }
+            .paid-stamp { 
+              border: 2px solid #000; 
+              color: #000; 
+              display: inline-block; 
+              padding: 5px 10px; 
+              transform: rotate(-15deg); 
+              font-weight: bold; 
+              margin: 10px auto; 
+              display: block; 
+              width: fit-content;
+              text-transform: uppercase;
+              opacity: 0.8;
+            }
+            .survey-section {
+              text-align: center;
+              margin-top: 20px;
+              padding-top: 10px;
+              border-top: 1px dotted #000;
+            }
+            .survey-qr {
+              width: 100px;
+              height: 100px;
+              margin: 10px auto;
+            }
+          </style>
+        </head>
+        <body>
+          <h2>${settings?.restaurantName || 'FLUXBar'}</h2>
+          <h3>Recibo de Pagamento</h3>
+          <p><b>PEDIDO:</b> #${order.id.slice(0, 8).toUpperCase()}</p>
+          <p><b>DATA:</b> ${new Date().toLocaleString('pt-BR')}</p>
+          <p><b>TIPO:</b> ${order.type === 'TABLE' ? `MESA ${table?.number || order.tableId}` : 'DELIVERY'}</p>
+          ${order.customerName ? `<p><b>CLIENTE:</b> ${order.customerName}</p>` : ''}
+          ${order.customerDocument ? `<p><b>CPF/CNPJ:</b> ${order.customerDocument}</p>` : ''}
+          
+          <div class="divider"></div>
+          <table>
+            <thead>
+              <tr>
+                <th style="text-align: left; font-size: 10px; text-transform: uppercase;">Item</th>
+                <th style="text-align: right; font-size: 10px; text-transform: uppercase;">Subtotal</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${itemsHtml}
+            </tbody>
+          </table>
+          
+          <div class="total">
+            <p style="display: flex; justify-content: space-between;"><span>Subtotal:</span> <span>R$ ${order.subtotal.toFixed(2)}</span></p>
+            ${order.serviceFee > 0 ? `<p style="display: flex; justify-content: space-between;"><span>Taxa de Serviço:</span> <span>R$ ${order.serviceFee.toFixed(2)}</span></p>` : ''}
+            ${order.deliveryFee > 0 ? `<p style="display: flex; justify-content: space-between;"><span>Taxa de Entrega:</span> <span>R$ ${order.deliveryFee.toFixed(2)}</span></p>` : ''}
+            <p style="display: flex; justify-content: space-between; font-size: 16px; margin-top: 5px;"><span>TOTAL:</span> <span>R$ ${order.total.toFixed(2)}</span></p>
+          </div>
+
+          ${paymentsHtml ? `
+            <div class="payments">
+              <p><b>FORMA DE PAGAMENTO:</b></p>
+              ${paymentsHtml}
+            </div>
+          ` : ''}
+
+          ${order.status === 'FINISHED' ? '<div class="paid-stamp">PAGO</div>' : ''}
+
+          <div class="survey-section">
+            <p><b>SUA OPINIÃO IMPORTA!</b></p>
+            <p>Escaneie o QR Code abaixo para avaliar nosso atendimento:</p>
+            <img src="${qrCodeUrl}" class="survey-qr" />
+            <p style="font-size: 8px;">${surveyUrl}</p>
+          </div>
+
           <div class="footer">
             <p>Obrigado pela preferência!</p>
             <p>${settings?.address || ''}</p>
@@ -4961,7 +5359,12 @@ function OrderDetailsModal({ isOpen, onClose, orderId, products, settings, table
             {order.items.map((item, idx) => (
               <div key={idx} className="flex justify-between items-center border-b border-[#141414]/10 pb-2">
                 <div className="flex-1">
-                  <p className="text-xs font-bold">{item.name}</p>
+                  <p className="text-xs font-bold">
+                    {item.name} 
+                    {item.paid && (
+                      <span className="ml-2 px-1 bg-green-100 text-green-700 text-[8px] font-bold uppercase rounded">Pago</span>
+                    )}
+                  </p>
                   <p className="text-[10px] opacity-50 font-mono">R$ {item.price.toFixed(2)} un.</p>
                 </div>
                 <div className="flex items-center gap-4">
@@ -5158,7 +5561,15 @@ function OrderDetailsModal({ isOpen, onClose, orderId, products, settings, table
                 title="Imprimir Comanda"
               >
                 <Printer size={14} />
-                Imprimir
+                Comanda
+              </button>
+              <button 
+                onClick={handlePrintReceipt}
+                className="p-2 border border-[#141414] hover:bg-[#141414] hover:text-[#E4E3E0] transition-colors flex items-center gap-2 text-[10px] font-bold uppercase"
+                title="Imprimir Recibo"
+              >
+                <FileText size={14} />
+                Recibo
               </button>
               <button 
                 onClick={handleWhatsApp}
@@ -5167,6 +5578,14 @@ function OrderDetailsModal({ isOpen, onClose, orderId, products, settings, table
               >
                 <Share2 size={14} />
                 WhatsApp
+              </button>
+              <button 
+                onClick={() => setIsPixModalOpen(true)}
+                className="p-2 border border-[#141414] bg-blue-600 text-white hover:bg-blue-700 transition-colors flex items-center gap-2 text-[10px] font-bold uppercase"
+                title="Gerar PIX Dinâmico"
+              >
+                <QrCode size={14} />
+                PIX Dinâmico
               </button>
               <button 
                 onClick={onOpenSplit}
@@ -5190,8 +5609,15 @@ function OrderDetailsModal({ isOpen, onClose, orderId, products, settings, table
               </button>
             </div>
               <div>
-                <p className="text-[10px] uppercase font-bold tracking-widest opacity-50">Total a Pagar</p>
+                <p className="text-[10px] uppercase font-bold tracking-widest opacity-50">Total do Pedido</p>
                 <p className="text-3xl font-mono font-bold">R$ {order.total.toFixed(2)}</p>
+                {order.items.some(item => item.paid) && (
+                  <div className="mt-1">
+                    <p className="text-[10px] text-green-600 font-bold uppercase tracking-widest">
+                      Restante: R$ {(order.items.filter(i => !i.paid).reduce((acc, i) => acc + (i.price * i.quantity), 0) + order.serviceFee + (order.deliveryFee || 0)).toFixed(2)}
+                    </p>
+                  </div>
+                )}
                 {order.peopleCount && order.peopleCount > 1 && (
                   <p className="text-[10px] opacity-50 italic mt-1">
                     Divisão: R$ {(order.total / order.peopleCount).toFixed(2)} por pessoa ({order.peopleCount} pessoas)
@@ -5249,6 +5675,14 @@ function OrderDetailsModal({ isOpen, onClose, orderId, products, settings, table
             </div>
           </div>
         </div>
+
+        <PixModal 
+          isOpen={isPixModalOpen} 
+          onClose={() => setIsPixModalOpen(false)} 
+          order={order} 
+          settings={settings} 
+          showToast={showToast} 
+        />
       </motion.div>
     </div>
   );
@@ -5654,7 +6088,12 @@ function CashierView({ orders, products, tables, settings, user, showToast }: { 
             name: p.name,
             price: p.price,
             cost: p.cost || 0,
-            quantity: item.quantity
+            quantity: item.quantity,
+            ncm: p.ncm || '',
+            cest: p.cest || '',
+            cfop: p.cfop || '',
+            icmsOrigin: p.icmsOrigin || '0',
+            icmsSituation: p.icmsSituation || '102'
           };
         }),
         payments: [{
@@ -6052,15 +6491,123 @@ function CashierView({ orders, products, tables, settings, user, showToast }: { 
   );
 }
 
+// Modal para PIX Dinâmico
+function PixModal({ isOpen, onClose, order, settings, showToast }: { isOpen: boolean, onClose: () => void, order: Order, settings: RestaurantSettings | null, showToast: any }) {
+  const [pixCode, setPixCode] = useState('');
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (isOpen && order && settings?.whatsappNumber) {
+      const code = generatePixBRCode(
+        settings.whatsappNumber.replace(/\D/g, ''), // Usando o número do WhatsApp como chave PIX (exemplo)
+        order.total,
+        settings.restaurantName || 'FLUXBar',
+        'SAO PAULO',
+        order.id.slice(-8).toUpperCase()
+      );
+      setPixCode(code);
+    }
+  }, [isOpen, order, settings]);
+
+  if (!isOpen || !order) return null;
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(pixCode);
+    setCopied(true);
+    showToast("Código PIX copiado!", "success");
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-[#141414]/90 backdrop-blur-md">
+      <motion.div 
+        initial={{ scale: 0.9, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        className="bg-white border border-[#141414] w-full max-w-md p-8 shadow-[20px_20px_0px_0px_rgba(20,20,20,1)] text-center"
+      >
+        <div className="flex justify-between items-center mb-8">
+          <h3 className="font-serif italic text-3xl">PIX Dinâmico</h3>
+          <button onClick={onClose} className="p-2 hover:bg-[#141414]/5">
+            <Plus className="rotate-45" size={24} />
+          </button>
+        </div>
+
+        <div className="bg-white p-6 border-2 border-[#141414] inline-block mb-8">
+          <QRCodeCanvas value={pixCode} size={200} />
+        </div>
+
+        <div className="space-y-6">
+          <div>
+            <p className="text-[10px] uppercase font-bold tracking-widest opacity-50 mb-1">Valor do Pedido</p>
+            <p className="text-4xl font-mono font-bold">R$ {order.total.toFixed(2)}</p>
+          </div>
+
+          <div className="p-4 bg-[#141414]/5 border border-[#141414]/10 text-left">
+            <p className="text-[8px] uppercase font-bold tracking-widest opacity-40 mb-2">Código Copia e Cola</p>
+            <p className="text-[10px] font-mono break-all line-clamp-2 opacity-60 mb-4">{pixCode}</p>
+            <button 
+              onClick={handleCopy}
+              className="w-full bg-[#141414] text-white py-3 text-[10px] font-bold uppercase tracking-widest flex items-center justify-center gap-2 hover:opacity-90 transition-opacity"
+            >
+              {copied ? 'Copiado!' : <><Share2 size={14} /> Copiar Código</>}
+            </button>
+          </div>
+
+          <div className="border-t border-[#141414]/10 pt-6">
+            <p className="text-[10px] uppercase font-bold tracking-widest opacity-50 mb-4">Simulação (Apenas para Teste)</p>
+            <button 
+              onClick={async () => {
+                try {
+                  const payment = {
+                    id: 'pay_sim_' + Date.now(),
+                    amount: order.total,
+                    method: 'PIX' as const,
+                    timestamp: new Date()
+                  };
+                  await updateDoc(doc(db, 'orders', order.id), { 
+                    status: 'FINISHED', 
+                    payments: [payment],
+                    updatedAt: serverTimestamp() 
+                  });
+                  if (order.tableId) {
+                    await updateDoc(doc(db, 'tables', order.tableId), { status: 'Livre' });
+                  }
+                  showToast("Pagamento confirmado via PIX (Simulação)!", "success");
+                  onClose();
+                } catch (error) {
+                  handleFirestoreError(error, OperationType.UPDATE, `orders/${order.id}`);
+                }
+              }}
+              className="w-full bg-green-600 text-white py-3 text-[10px] font-bold uppercase tracking-widest hover:bg-green-700 transition-colors flex items-center justify-center gap-2"
+            >
+              <Check size={16} />
+              Confirmar Pagamento (Simular)
+            </button>
+          </div>
+
+          <p className="text-[10px] opacity-40 italic">
+            O pagamento será confirmado automaticamente após a transação.
+          </p>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
+// Modal para Divisão de Conta
 function BillSplitModal({ isOpen, onClose, order, showToast }: { isOpen: boolean, onClose: () => void, order: Order, showToast: any }) {
-  const [splitType, setSplitType] = useState<'equal' | 'items'>('equal');
-  const [people, setPeople] = useState(order.peopleCount || 1);
-  const [selectedItems, setSelectedItems] = useState<number[]>([]);
+  const [splitType, setSplitType] = useState<'equal' | 'items'>('equal'); // Tipo de divisão: igual ou por itens
+  const [people, setPeople] = useState(order.peopleCount || 1); // Quantidade de pessoas
+  const [selectedItems, setSelectedItems] = useState<number[]>([]); // Índices dos itens selecionados para pagar
+  const [loading, setLoading] = useState(false);
 
   if (!isOpen) return null;
 
+  // Função para dividir a conta igualmente por número de pessoas
   const handleSplitEqual = async () => {
+    setLoading(true);
     try {
+      // Apenas atualiza a quantidade de pessoas no pedido para fins de cálculo
       await updateDoc(doc(db, 'orders', order.id), {
         peopleCount: people,
         updatedAt: serverTimestamp()
@@ -6069,6 +6616,43 @@ function BillSplitModal({ isOpen, onClose, order, showToast }: { isOpen: boolean
       onClose();
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `orders/${order.id}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Função para pagar itens selecionados separadamente
+  const handleSplitItems = async () => {
+    if (selectedItems.length === 0) {
+      showToast("Selecione ao menos um item", "error");
+      return;
+    }
+    
+    setLoading(true);
+    try {
+      // Marca os itens selecionados como pagos
+      const updatedItems = order.items.map((item, idx) => ({
+        ...item,
+        paid: selectedItems.includes(idx) ? true : (item.paid || false)
+      }));
+
+      await updateDoc(doc(db, 'orders', order.id), {
+        items: updatedItems,
+        updatedAt: serverTimestamp()
+      });
+
+      showToast("Itens marcados como pagos!", "success");
+      setSelectedItems([]); // Limpa seleção
+      
+      // Se todos os itens foram pagos, poderíamos sugerir finalizar o pedido
+      const allPaid = updatedItems.every(item => item.paid);
+      if (allPaid) {
+        showToast("Todos os itens foram pagos. Você já pode finalizar a conta.", "info");
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `orders/${order.id}`);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -6112,9 +6696,10 @@ function BillSplitModal({ isOpen, onClose, order, showToast }: { isOpen: boolean
             </div>
             <button 
               onClick={handleSplitEqual}
-              className="w-full bg-[#141414] text-white py-4 font-bold uppercase tracking-widest hover:opacity-90"
+              disabled={loading}
+              className="w-full bg-[#141414] text-white py-4 font-bold uppercase tracking-widest hover:opacity-90 disabled:opacity-50"
             >
-              Confirmar Divisão
+              {loading ? '...' : 'Confirmar Divisão'}
             </button>
           </div>
         ) : (
@@ -6125,6 +6710,7 @@ function BillSplitModal({ isOpen, onClose, order, showToast }: { isOpen: boolean
                 <div 
                   key={idx}
                   onClick={() => {
+                    if (item.paid) return; // Não permite selecionar itens já pagos
                     if (selectedItems.includes(idx)) {
                       setSelectedItems(selectedItems.filter(i => i !== idx));
                     } else {
@@ -6133,11 +6719,12 @@ function BillSplitModal({ isOpen, onClose, order, showToast }: { isOpen: boolean
                   }}
                   className={cn(
                     "p-3 border cursor-pointer transition-colors flex justify-between items-center",
+                    item.paid ? "bg-green-50 border-green-200 opacity-50 cursor-not-allowed" :
                     selectedItems.includes(idx) ? "border-[#141414] bg-[#141414]/5" : "border-[#141414]/10"
                   )}
                 >
                   <div>
-                    <p className="text-xs font-bold">{item.name}</p>
+                    <p className="text-xs font-bold">{item.name} {item.paid && <span className="text-[8px] text-green-600 ml-2">(PAGO)</span>}</p>
                     <p className="text-[10px] opacity-50">R$ {item.price.toFixed(2)}</p>
                   </div>
                   {selectedItems.includes(idx) && <div className="w-2 h-2 bg-[#141414] rounded-full" />}
@@ -6148,8 +6735,12 @@ function BillSplitModal({ isOpen, onClose, order, showToast }: { isOpen: boolean
               <p className="text-[10px] uppercase font-bold tracking-widest opacity-50">Total Selecionado</p>
               <p className="text-xl font-mono font-bold">R$ {selectedItems.reduce((acc, idx) => acc + order.items[idx].price, 0).toFixed(2)}</p>
             </div>
-            <button className="w-full bg-[#141414] text-white py-4 font-bold uppercase tracking-widest hover:opacity-90">
-              Pagar Selecionados
+            <button 
+              onClick={handleSplitItems}
+              disabled={loading || selectedItems.length === 0}
+              className="w-full bg-[#141414] text-white py-4 font-bold uppercase tracking-widest hover:opacity-90 disabled:opacity-50"
+            >
+              {loading ? '...' : 'Pagar Selecionados'}
             </button>
           </div>
         )}

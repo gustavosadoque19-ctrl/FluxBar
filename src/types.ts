@@ -47,6 +47,12 @@ export interface OrderItem {
   cost: number;
   quantity: number;
   paid?: boolean; // Se o item já foi pago (para divisão de conta)
+  // Campos Fiscais (Copiados do Produto no momento do pedido)
+  ncm?: string;
+  cest?: string;
+  cfop?: string;
+  icmsOrigin?: string;
+  icmsSituation?: string;
 }
 
 // Interface para Pagamentos realizados
@@ -89,6 +95,16 @@ export interface Order {
   deleted?: boolean;
   deletedAt?: any;
   isPickup?: boolean;
+}
+
+// Interface para Pesquisa de Satisfação (NPS)
+export interface Survey {
+  id: string;
+  orderId: string;
+  rating: number; // 1 a 5
+  comment?: string;
+  customerName?: string;
+  createdAt: any;
 }
 
 // Interface para Configurações do Restaurante
@@ -142,9 +158,9 @@ export interface RestaurantSettings {
   // Integração iFood
   ifoodClientId?: string;
   ifoodClientSecret?: string;
-  // Integração Fiscal (NFe.io)
+  // Integração Fiscal (Focus NFe)
   fiscalEnvironment?: 'homologacao' | 'producao';
-  nfeIoCompanyId?: string;
+  focusNfeToken?: string;
   cscId?: string;
   cscToken?: string;
   certificateBase64?: string;

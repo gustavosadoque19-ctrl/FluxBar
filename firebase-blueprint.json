@@ -146,7 +146,13 @@
             "textColor": { "type": "string" },
             "logoUrl": { "type": "string" }
           }
-        }
+        },
+        "fiscalEnvironment": { "type": "string", "enum": ["homologacao", "producao"] },
+        "focusNfeToken": { "type": "string" },
+        "cscId": { "type": "string" },
+        "cscToken": { "type": "string" },
+        "certificateBase64": { "type": "string" },
+        "certificatePassword": { "type": "string" }
       },
       "required": ["restaurantName", "serviceFee"]
     },
@@ -191,6 +197,20 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["email", "createdAt"]
+    },
+    "Survey": {
+      "title": "Survey",
+      "description": "A customer satisfaction survey (NPS).",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "orderId": { "type": "string" },
+        "rating": { "type": "integer", "minimum": 1, "maximum": 5 },
+        "comment": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "customerName": { "type": "string" }
+      },
+      "required": ["rating", "createdAt"]
     }
   },
   "firestore": {
@@ -225,6 +245,10 @@
     "/allowed_emails/{emailId}": {
       "schema": "AllowedEmail",
       "description": "Collection of emails allowed to register."
+    },
+    "/surveys/{surveyId}": {
+      "schema": "Survey",
+      "description": "Collection of customer satisfaction surveys."
     }
   }
 }

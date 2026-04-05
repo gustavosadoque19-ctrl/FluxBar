@@ -6,7 +6,21 @@ import firebaseConfig from '../firebase-applet-config.json';
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+
+// Initialize Firestore with fallback to (default) if named database fails
+let dbInstance: any;
+try {
+  if (firebaseConfig.firestoreDatabaseId) {
+    dbInstance = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+  } else {
+    dbInstance = getFirestore(app);
+  }
+} catch (e) {
+  console.error("Error initializing Firestore with named ID, falling back to default:", e);
+  dbInstance = getFirestore(app);
+}
+
+export const db = dbInstance;
 
 // Enable offline persistence
 if (typeof window !== 'undefined') {

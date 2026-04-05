@@ -1,54 +1,22 @@
-import admin from "firebase-admin";
-import { getFirestore } from "firebase-admin/firestore";
-import fs from "fs";
-import path from "path";
+import { initializeApp } from 'firebase-admin/app';
+import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 
-const firebaseConfigPath = path.join(process.cwd(), "firebase-applet-config.json");
-if (fs.existsSync(firebaseConfigPath)) {
-  const firebaseConfig = JSON.parse(fs.readFileSync(firebaseConfigPath, "utf-8"));
-  console.log('Project ID:', firebaseConfig.projectId);
-  console.log('Database ID:', firebaseConfig.firestoreDatabaseId);
-  
+async function test() {
   try {
-    if (admin.apps.length === 0) {
-      admin.initializeApp({
-        projectId: firebaseConfig.projectId,
-      });
-    }
+    initializeApp();
+    console.log("Admin SDK initialized with default credentials.");
     
-    const dbNamed = getFirestore(firebaseConfig.firestoreDatabaseId);
-    const dbDefault = getFirestore();
+    const db = getFirestore();
+    console.log(`Using default database.`);
     
-    async function check() {
-      try {
-        console.log(`Attempting to write to NAMED database: ${firebaseConfig.firestoreDatabaseId}...`);
-        await dbNamed.collection('test_connection').doc('ping').set({ timestamp: admin.firestore.FieldValue.serverTimestamp() });
-        console.log('Successfully wrote to NAMED database!');
-        const collectionsNamed = await dbNamed.listCollections();
-        console.log('Named Database Collections:', collectionsNamed.map(c => c.id));
-      } catch (e: any) {
-        console.error('Error in NAMED database:', e.message);
-        if (e.code === 7) {
-          console.error('PERMISSION_DENIED: This usually means the service account doesn\'t have access to this database.');
-        }
-      }
-
-      try {
-        console.log('Attempting to list collections in DEFAULT database...');
-        const collectionsDefault = await dbDefault.listCollections();
-        console.log('Default Database Collections:', collectionsDefault.map(c => c.id));
-      } catch (e: any) {
-        console.error('Error listing collections in DEFAULT database:', e.message);
-      }
-      process.exit();
-    }
+    const collections = await db.listCollections();
+    console.log(`Collections in default database: ${collections.map(c => c.id).join(', ')}`);
     
-    check();
-  } catch (e: any) {
-    console.error('Initialization error:', e.message);
-    process.exit();
+    await db.collection('test').doc('connection').set({ timestamp: FieldValue.serverTimestamp() });
+    console.log("Successfully wrote to default database.");
+  } catch (error: any) {
+    console.error(`Error in default database: ${error.message}`);
   }
-} else {
-  console.log('Config not found');
-  process.exit();
 }
+
+test();
