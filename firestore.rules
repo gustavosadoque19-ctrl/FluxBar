@@ -16,6 +16,7 @@ service cloud.firestore {
     function isAdmin() {
       return isAuthenticated() && (
         request.auth.token.email == "gustavosadoque19@gmail.com" ||
+        request.auth.uid == "r8jQb1VIXJRHY52V91GjRAsU8lu2" ||
         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
       );
@@ -71,19 +72,32 @@ service cloud.firestore {
       allow write: if isManager();
     }
 
-    match /settings/private {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin();
-    }
-
     match /settings/general {
       allow read: if true;
+      allow write: if isManager();
+    }
+
+    match /settings/private {
+      allow read, write: if isAdmin();
+    }
+
+    match /allowed_emails/{emailId} {
+      allow read: if true; // Needed for registration check
       allow write: if isAdmin();
     }
 
-    // Default allow for authenticated users
+    match /surveys/{surveyId} {
+      allow create: if true; // Allow anyone to submit a survey
+      allow read, update, delete: if isManager();
+    }
+
+    match /cashier_sessions/{sessionId} {
+      allow read, write: if isManager();
+    }
+
+    // Default deny
     match /{document=**} {
-      allow read, write: if isAuthenticated();
+      allow read, write: if isAdmin();
     }
   }
 }
